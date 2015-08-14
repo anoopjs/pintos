@@ -30,6 +30,16 @@ static void busy_wait (int64_t loops);
 static void real_time_sleep (int64_t num, int32_t denom);
 static void real_time_delay (int64_t num, int32_t denom);
 
+
+struct sleeping_thread
+  {
+    struct list_elem elem;
+    int64_t ticks_left;
+    struct thread * th;
+  };
+
+struct list sleeping_threads_list;
+
 /* Sets up the timer to interrupt TIMER_FREQ times per second,
    and registers the corresponding interrupt. */
 void
@@ -37,6 +47,8 @@ timer_init (void)
 {
   pit_configure_channel (0, 2, TIMER_FREQ);
   intr_register_ext (0x20, timer_interrupt, "8254 Timer");
+
+  list_init (&sleeping_threads_list);
 }
 
 /* Calibrates loops_per_tick, used to implement brief delays. */
@@ -88,12 +100,26 @@ timer_elapsed (int64_t then)
    be turned on. */
 void
 timer_sleep (int64_t ticks) 
-{
+{ 
+  enum intr_level old_level;
   int64_t start = timer_ticks ();
-
   ASSERT (intr_get_level () == INTR_ON);
-  while (timer_elapsed (start) < ticks) 
+
+  /*  while (timer_elapsed (start) < ticks) {
     thread_yield ();
+  } */
+  if (timer_elapsed (start) < ticks)
+    {
+      struct sleeping_thread * new;
+      new = (struct sleeping_thread *) malloc (sizeof (struct sleeping_thread));
+      new->th = thread_current();
+      new->ticks_left = --ticks;
+      list_push_back (&sleeping_threads_list, &(new->elem));
+      old_level = intr_disable ();
+      thread_block ();
+      intr_set_level (old_level);
+    }
+
 }
 
 /* Sleeps for approximately MS milliseconds.  Interrupts must be
@@ -170,8 +196,29 @@ timer_print_stats (void)
 static void
 timer_interrupt (struct intr_frame *args UNUSED)
 {
+  struct list_elem *e;
+  enum intr_level old_level;
+
   ticks++;
   thread_tick ();
+
+  for (e = list_begin (&sleeping_threads_list);
+       e != list_end (&sleeping_threads_list); e = list_next (e))
+    {
+      struct sleeping_thread *st = list_entry (e, struct sleeping_thread, elem);
+      if (st->ticks_left == 0)
+	{
+	  list_remove (e);
+          e = list_prev (e);
+	  //	  old_level = intr_disable ();
+	  thread_unblock (st->th);
+	  //intr_set_level (old_level);
+	}
+      else
+	{
+	  st->ticks_left--;
+	}
+    }
 }
 
 /* Returns true if LOOPS iterations waits for more than one timer
