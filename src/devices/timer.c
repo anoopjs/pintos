@@ -197,7 +197,6 @@ static void
 timer_interrupt (struct intr_frame *args UNUSED)
 {
   struct list_elem *e;
-  enum intr_level old_level;
 
   ticks++;
   thread_tick ();

@@ -88,6 +88,8 @@ struct thread
     char name[16];                      /* Name (for debugging purposes). */
     uint8_t *stack;                     /* Saved stack pointer. */
     int priority;                       /* Priority. */
+    int donated_priority;
+    struct list donate_list;
     struct list_elem allelem;           /* List element for all threads list. */
 
     /* Shared between thread.c and synch.c. */
@@ -112,8 +114,8 @@ void thread_start (void);
 
 void thread_tick (void);
 void thread_print_stats (void);
-void thread_push_priority (struct thread *);
-void print_ready_list (void);
+void thread_push_priority (struct list *, struct list_elem *);
+void print_list (struct list *);
 typedef void thread_func (void *aux);
 tid_t thread_create (const char *name, int priority, thread_func *, void *);
 
@@ -132,7 +134,9 @@ typedef void thread_action_func (struct thread *t, void *aux);
 void thread_foreach (thread_action_func *, void *);
 
 int thread_get_priority (void);
+int get_thread_priority (struct thread *);
 void thread_set_priority (int);
+void set_thread_priority (int, struct thread *);
 
 int thread_get_nice (void);
 void thread_set_nice (int);

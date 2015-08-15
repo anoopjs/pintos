@@ -36,6 +36,8 @@ static struct thread *initial_thread;
 
 /* Lock used by allocate_tid(). */
 static struct lock tid_lock;
+static struct lock main_lock;
+
 /* Stack frame for kernel_thread(). */
 struct kernel_thread_frame 
   {
@@ -89,6 +91,7 @@ thread_init (void)
   ASSERT (intr_get_level () == INTR_OFF);
 
   lock_init (&tid_lock);
+  lock_init (&main_lock);
   list_init (&ready_list);
   list_init (&all_list);
 
@@ -96,6 +99,7 @@ thread_init (void)
   initial_thread = running_thread ();
   init_thread (initial_thread, "main", PRI_DEFAULT);
   initial_thread->status = THREAD_RUNNING;
+  list_init(&initial_thread->donate_list);
   initial_thread->tid = allocate_tid ();
 }
 
@@ -197,30 +201,28 @@ thread_create (const char *name, int priority,
   sf->eip = switch_entry;
   sf->ebp = 0;
 
+  list_init (&(t->donate_list));
   /* Add to run queue. */
   thread_unblock (t);
   return tid;
 }
 
 void
-thread_push_priority (struct thread *thread)
+thread_push_priority (struct list* list, struct list_elem *elem)
 {
   struct list_elem *e;
-
-  for (e = list_begin (&ready_list); e != list_end (&ready_list);
+  struct thread *thread = list_entry (elem, struct thread, elem);
+  for (e = list_begin (list); e != list_end (list);
        e = list_next (e))
     {
       struct thread *t = list_entry (e, struct thread, elem);
-      if (t->priority < thread->priority) {
+      if (get_thread_priority(t) < get_thread_priority(thread)) {
  	list_insert (e, &(thread->elem));
 	return;
       }
     }
 
-  list_push_back (&ready_list, &thread->elem);
-
-
-
+  list_push_back (list, &thread->elem);
 }
 
 /* Puts the current thread to sleep.  It will not be scheduled
@@ -240,10 +242,11 @@ thread_block (void)
 }
 
 void
-print_ready_list (void)
+print_list (struct list *list)
 {
   struct list_elem *e;
-  for (e = list_begin (&ready_list); e != list_end (&ready_list);
+
+  for (e = list_begin (list); e != list_end (list);
        e = list_next (e))
     {
       struct thread *t = list_entry (e, struct thread, elem);
@@ -268,15 +271,14 @@ thread_unblock (struct thread *t)
   ASSERT (is_thread (t));
   old_level = intr_disable ();
   ASSERT (t->status == THREAD_BLOCKED);
-  thread_push_priority (t);
+  thread_push_priority (&ready_list, &t->elem);
   //  list_push_back (&ready_list, &t->elem);
   t->status = THREAD_READY;
   intr_set_level (old_level);
-  
-  if (thread_current ()->priority < t->priority && thread_current () != idle_thread) {
+
+  if (thread_get_priority () < get_thread_priority(t) && thread_current () != idle_thread) {
     thread_yield ();
   }
-
 }
 
 /* Returns the name of the running thread. */
@@ -301,7 +303,6 @@ thread_current (void)
      recursion can cause stack overflow. */
   ASSERT (is_thread (t));
   ASSERT (t->status == THREAD_RUNNING);
-
   return t;
 }
 
@@ -344,9 +345,8 @@ thread_yield (void)
   ASSERT (!intr_context ());
   old_level = intr_disable ();
   if (cur != idle_thread) 
-    thread_push_priority (cur);
+    thread_push_priority (&ready_list, &cur->elem);
     //    list_push_back (&ready_list, &cur->elem);
-
   cur->status = THREAD_READY;
   schedule ();
   intr_set_level (old_level);
@@ -386,13 +386,26 @@ thread_set_priority (int new_priority)
     }
 }
 
+void
+set_thread_priority (int new_priority, struct thread *t)
+{
+  t->donated_priority = new_priority;
+}
+
 /* Returns the current thread's priority. */
 int
 thread_get_priority (void) 
 {
-  return thread_current ()->priority;
+  struct thread *t;
+  t = thread_current ();
+  return (t->priority > t->donated_priority) ? t->priority : t->donated_priority;
 }
 
+int 
+get_thread_priority (struct thread *t)
+{
+  return (t->priority > t->donated_priority) ? t->priority : t->donated_priority;
+}
 /* Sets the current thread's nice value to NICE. */
 void
 thread_set_nice (int nice UNUSED) 
@@ -608,8 +621,9 @@ schedule (void)
   ASSERT (cur->status != THREAD_RUNNING);
   ASSERT (is_thread (next));
 
-  if (cur != next)
+  if (cur != next) 
     prev = switch_threads (cur, next);
+
   thread_schedule_tail (prev);
 }
 

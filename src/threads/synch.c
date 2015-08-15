@@ -32,6 +32,7 @@
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 
+
 /* Initializes semaphore SEMA to VALUE.  A semaphore is a
    nonnegative integer along with two atomic operators for
    manipulating it:
@@ -68,7 +69,7 @@ sema_down (struct semaphore *sema)
   old_level = intr_disable ();
   while (sema->value == 0) 
     {
-      list_push_back (&sema->waiters, &thread_current ()->elem);
+      thread_push_priority (&sema->waiters, &thread_current ()->elem);
       thread_block ();
     }
   sema->value--;
@@ -113,10 +114,10 @@ sema_up (struct semaphore *sema)
   ASSERT (sema != NULL);
 
   old_level = intr_disable ();
+  sema->value++;
   if (!list_empty (&sema->waiters)) 
     thread_unblock (list_entry (list_pop_front (&sema->waiters),
-                                struct thread, elem));
-  sema->value++;
+				struct thread, elem));
   intr_set_level (old_level);
 }
 
@@ -196,6 +197,17 @@ lock_acquire (struct lock *lock)
   ASSERT (!intr_context ());
   ASSERT (!lock_held_by_current_thread (lock));
 
+  if (lock->holder != NULL
+      &&  get_thread_priority(lock->holder) < thread_get_priority())
+    {
+      struct donate_priority *dp;
+      dp = (struct donate_priority *) malloc (sizeof (struct donate_priority));
+      dp->priority = get_thread_priority(lock->holder);
+
+      list_push_front (&(lock->holder)->donate_list, &dp->elem);
+      set_thread_priority(get_thread_priority(thread_current ()), lock->holder);
+    }
+
   sema_down (&lock->semaphore);
   lock->holder = thread_current ();
 }
@@ -228,10 +240,24 @@ lock_try_acquire (struct lock *lock)
 void
 lock_release (struct lock *lock) 
 {
+  struct donate_priority *dp;
   ASSERT (lock != NULL);
   ASSERT (lock_held_by_current_thread (lock));
 
   lock->holder = NULL;
+  
+  if (list_empty (&thread_current ()->donate_list)) 
+    {
+      thread_current ()->donated_priority = 0;
+    }
+  else
+    {
+      dp = list_entry (
+		       list_pop_front(&thread_current ()->donate_list)
+		       , struct donate_priority
+		       , elem);
+      //      set_thread_priority (dp->priority, thread_current ());
+    }
   sema_up (&lock->semaphore);
 }
 
