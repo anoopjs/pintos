@@ -100,6 +100,8 @@ thread_init (void)
   init_thread (initial_thread, "main", PRI_DEFAULT);
   initial_thread->status = THREAD_RUNNING;
   list_init(&initial_thread->donate_list);
+  initial_thread->waiting_for_lock = NULL;
+  initial_thread->donated_by = NULL;
   initial_thread->tid = allocate_tid ();
 }
 
@@ -202,6 +204,8 @@ thread_create (const char *name, int priority,
   sf->ebp = 0;
 
   list_init (&(t->donate_list));
+  t->waiting_for_lock = NULL;
+  t->donated_by = NULL;
   /* Add to run queue. */
   thread_unblock (t);
   return tid;
@@ -216,7 +220,7 @@ thread_push_priority (struct list* list, struct list_elem *elem)
        e = list_next (e))
     {
       struct thread *t = list_entry (e, struct thread, elem);
-      if (get_thread_priority(t) < get_thread_priority(thread)) {
+      if (get_thread_priority(t) <= get_thread_priority(thread)) {
  	list_insert (e, &(thread->elem));
 	return;
       }
@@ -274,11 +278,12 @@ thread_unblock (struct thread *t)
   thread_push_priority (&ready_list, &t->elem);
   //  list_push_back (&ready_list, &t->elem);
   t->status = THREAD_READY;
+  
   intr_set_level (old_level);
 
-  if (thread_get_priority () < get_thread_priority(t) && thread_current () != idle_thread) {
+  if (thread_get_priority () < get_thread_priority(t) 
+      && thread_current () != idle_thread)
     thread_yield ();
-  }
 }
 
 /* Returns the name of the running thread. */

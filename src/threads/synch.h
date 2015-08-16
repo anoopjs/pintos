@@ -13,9 +13,14 @@ struct semaphore
 
 struct donate_priority
   {
-    unsigned priority;
+    struct lock *lock;
+    unsigned prev_priority;
+    unsigned donated_priority;
+    struct thread *donating_thread;
+    struct thread *prev_donor;
     struct list_elem elem;
   };
+
 void sema_init (struct semaphore *, unsigned value);
 void sema_down (struct semaphore *);
 bool sema_try_down (struct semaphore *);

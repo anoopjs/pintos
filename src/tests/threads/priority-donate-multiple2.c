@@ -56,6 +56,7 @@ test_priority_donate_multiple2 (void)
        PRI_DEFAULT + 5, thread_get_priority ());
 
   lock_release (&b);
+
   msg ("Threads b, a, c should have just finished, in that order.");
   msg ("Main thread should have priority %d.  Actual priority: %d.",
        PRI_DEFAULT, thread_get_priority ());

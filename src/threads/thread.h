@@ -89,6 +89,8 @@ struct thread
     uint8_t *stack;                     /* Saved stack pointer. */
     int priority;                       /* Priority. */
     int donated_priority;
+    struct thread * donated_by;
+    struct lock * waiting_for_lock;
     struct list donate_list;
     struct list_elem allelem;           /* List element for all threads list. */
 
@@ -108,7 +110,6 @@ struct thread
    If true, use multi-level feedback queue scheduler.
    Controlled by kernel command-line option "-o mlfqs". */
 extern bool thread_mlfqs;
-
 void thread_init (void);
 void thread_start (void);
 

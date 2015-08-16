@@ -47,9 +47,9 @@ test_priority_donate_nest (void)
   thread_yield ();
   msg ("Low thread should have priority %d.  Actual priority: %d.",
        PRI_DEFAULT + 1, thread_get_priority ());
-
   thread_create ("high", PRI_DEFAULT + 2, high_thread_func, &b);
   thread_yield ();
+
   msg ("Low thread should have priority %d.  Actual priority: %d.",
        PRI_DEFAULT + 2, thread_get_priority ());
 

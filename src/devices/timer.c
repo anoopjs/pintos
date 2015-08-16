@@ -7,6 +7,7 @@
 #include "threads/interrupt.h"
 #include "threads/synch.h"
 #include "threads/thread.h"
+#include "threads/malloc.h"
   
 /* See [8254] for hardware details of the 8254 timer chip. */
 
@@ -209,9 +210,7 @@ timer_interrupt (struct intr_frame *args UNUSED)
 	{
 	  list_remove (e);
           e = list_prev (e);
-	  //	  old_level = intr_disable ();
 	  thread_unblock (st->th);
-	  //intr_set_level (old_level);
 	}
       else
 	{
