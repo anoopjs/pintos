@@ -348,6 +348,7 @@ lock_held_by_current_thread (const struct lock *lock)
 struct semaphore_elem 
   {
     struct list_elem elem;              /* List element. */
+    int priority;
     struct semaphore semaphore;         /* This semaphore. */
   };
 
@@ -360,6 +361,24 @@ cond_init (struct condition *cond)
   ASSERT (cond != NULL);
 
   list_init (&cond->waiters);
+}
+
+void
+waiter_push_priority (struct list* list, struct list_elem *elem, int priority)
+{
+  struct list_elem *e;
+  struct thread *thread = list_entry (elem, struct thread, elem);
+  for (e = list_begin (list); e != list_end (list);
+       e = list_next (e))
+    {
+      struct thread *t = list_entry (e, struct thread, elem);
+      if (get_thread_priority(t) < get_thread_priority(thread)) {
+ 	list_insert (e, &(thread->elem));
+	return;
+      }
+    }
+
+  list_push_back (list, &thread->elem);
 }
 
 /* Atomically releases LOCK and waits for COND to be signaled by

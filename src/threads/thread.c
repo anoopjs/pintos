@@ -220,7 +220,7 @@ thread_push_priority (struct list* list, struct list_elem *elem)
        e = list_next (e))
     {
       struct thread *t = list_entry (e, struct thread, elem);
-      if (get_thread_priority(t) <= get_thread_priority(thread)) {
+      if (get_thread_priority(t) < get_thread_priority(thread)) {
  	list_insert (e, &(thread->elem));
 	return;
       }
