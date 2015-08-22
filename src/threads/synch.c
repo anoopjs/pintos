@@ -424,7 +424,7 @@ cond_init (struct condition *cond)
 bool
 compare_semaphore_elem (const struct list_elem *a,
 			const struct list_elem *b,
-			void *aux)
+			void *aux UNUSED)
 {
   struct semaphore_elem *s1 = list_entry (a, struct semaphore_elem, elem);
   struct semaphore_elem *s2 = list_entry (b, struct semaphore_elem, elem);
@@ -465,7 +465,6 @@ cond_wait (struct condition *cond, struct lock *lock)
   
   waiter.waiting_thread = thread_current ();
   sema_init (&waiter.semaphore, 0);
-  //  list_push_back (&cond->waiters, &waiter.elem);
   list_insert_ordered (&cond->waiters, &waiter.elem, compare_semaphore_elem, NULL);
 
   lock_release (lock);

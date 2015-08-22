@@ -4,6 +4,7 @@
 #include <debug.h>
 #include <list.h>
 #include <stdint.h>
+#include "threads/fixed-point.h"
 
 /* States in a thread's life cycle. */
 enum thread_status
@@ -99,6 +100,8 @@ struct thread
     struct list_elem elem;              /* List element. */
     struct list_elem sema_elem;         /* List element for semaphore waiting list. */
 
+    int nice;
+    fixed_point recent_cpu;
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /* Page directory. */
@@ -112,6 +115,7 @@ struct thread
    If true, use multi-level feedback queue scheduler.
    Controlled by kernel command-line option "-o mlfqs". */
 extern bool thread_mlfqs;
+fixed_point load_avg;
 void thread_init (void);
 void thread_start (void);
 

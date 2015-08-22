@@ -11,6 +11,7 @@
 #include "threads/switch.h"
 #include "threads/synch.h"
 #include "threads/vaddr.h"
+#include "devices/timer.h"
 #ifdef USERPROG
 #include "userprog/process.h"
 #endif
@@ -101,6 +102,7 @@ thread_init (void)
   initial_thread->status = THREAD_RUNNING;
   list_init(&initial_thread->donate_list);
   initial_thread->waiting_for_lock = NULL;
+  initial_thread->waiting_for_semaphore = NULL;
   initial_thread->donated_by = NULL;
   initial_thread->tid = allocate_tid ();
 }
@@ -128,6 +130,7 @@ void
 thread_tick (void) 
 {
   struct thread *t = thread_current ();
+  int ready_threads;
 
   /* Update statistics. */
   if (t == idle_thread)
@@ -139,6 +142,22 @@ thread_tick (void)
   else
     kernel_ticks++;
 
+  if (t != idle_thread)
+    t->recent_cpu = add_integer (t->recent_cpu, 1);
+
+  if (timer_ticks () % TIMER_FREQ == 0)
+    {
+      ready_threads = list_size (&ready_list);
+      if (t != idle_thread)
+	ready_threads++;
+
+      load_avg = add (mul (div (fixed (59), fixed (60)), load_avg),
+       		      mul_integer (div (fixed (1), fixed (60)), ready_threads));
+      t->recent_cpu = add_integer (mul (div (mul_integer (load_avg, 2)
+					     , add_integer (mul_integer (load_avg, 2), 1))
+					, t->recent_cpu), t->nice);
+      //      printf("New recent_cpu is %d\n", fixed_to_int_near(t->recent_cpu));
+    }
   /* Enforce preemption. */
   if (++thread_ticks >= TIME_SLICE)
     intr_yield_on_return ();
@@ -205,7 +224,11 @@ thread_create (const char *name, int priority,
 
   list_init (&(t->donate_list));
   t->waiting_for_lock = NULL;
+  t->waiting_for_semaphore = NULL;
   t->donated_by = NULL;
+  t->nice = thread_get_nice ();
+  t->recent_cpu = thread_get_recent_cpu ();
+
   /* Add to run queue. */
   thread_unblock (t);
   return tid;
@@ -276,7 +299,6 @@ thread_unblock (struct thread *t)
   old_level = intr_disable ();
   ASSERT (t->status == THREAD_BLOCKED);
   thread_push_priority (&ready_list, &t->elem);
-  //  list_push_back (&ready_list, &t->elem);
   t->status = THREAD_READY;
   
   intr_set_level (old_level);
@@ -350,8 +372,7 @@ thread_yield (void)
   ASSERT (!intr_context ());
   old_level = intr_disable ();
   if (cur != idle_thread) 
-    thread_push_priority (&ready_list, &cur->elem);
-    //    list_push_back (&ready_list, &cur->elem);
+      thread_push_priority (&ready_list, &cur->elem);
   cur->status = THREAD_READY;
   schedule ();
   intr_set_level (old_level);
@@ -382,13 +403,10 @@ thread_set_priority (int new_priority)
   struct thread * ready_list_head, * current_thread;
 
   current_thread = thread_current();
-  //  thread_current ()->priority = new_priority;
   ready_list_head = list_entry (list_begin (&ready_list), struct thread, elem);
   current_thread->priority = new_priority;
   if (ready_list_head->priority > new_priority) 
-    {
       thread_yield ();
-    }
 }
 
 void
@@ -413,33 +431,37 @@ get_thread_priority (struct thread *t)
 }
 /* Sets the current thread's nice value to NICE. */
 void
-thread_set_nice (int nice UNUSED) 
+thread_set_nice (int new_nice) 
 {
-  /* Not yet implemented. */
+ int priority  = 
+    fixed_to_int_near (sub_integer
+		       (sub (fixed (PRI_MAX),
+			     div_integer (thread_current ()->recent_cpu, 4))
+			, (new_nice * 2)));
+  thread_current ()->nice = new_nice;
+  printf ("Full %d First %d Second %d Third %d\n", priority, PRI_MAX, fixed_to_int_near 
+  	  (div (thread_current ()->recent_cpu, fixed (4))), (new_nice * 2));
 }
 
 /* Returns the current thread's nice value. */
 int
 thread_get_nice (void) 
 {
-  /* Not yet implemented. */
-  return 0;
+  return thread_current ()->nice;
 }
 
 /* Returns 100 times the system load average. */
 int
 thread_get_load_avg (void) 
 {
-  /* Not yet implemented. */
-  return 0;
+  return fixed_to_int_near (mul (fixed (100), load_avg));
 }
 
 /* Returns 100 times the current thread's recent_cpu value. */
 int
 thread_get_recent_cpu (void) 
 {
-  /* Not yet implemented. */
-  return 0;
+  return fixed_to_int_near (mul (fixed (100), thread_current ()->recent_cpu));
 }
 
 /* Idle thread.  Executes when no other thread is ready to run.
@@ -528,6 +550,8 @@ init_thread (struct thread *t, const char *name, int priority)
   strlcpy (t->name, name, sizeof t->name);
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
+  t->nice = 0;
+  t->recent_cpu = 0;
   t->magic = THREAD_MAGIC;
 
   old_level = intr_disable ();

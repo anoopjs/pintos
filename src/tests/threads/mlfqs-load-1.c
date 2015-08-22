@@ -13,7 +13,7 @@
 #include "threads/synch.h"
 #include "threads/thread.h"
 #include "devices/timer.h"
-
+#include "threads/fixed-point.h"
 void
 test_mlfqs_load_1 (void) 
 {
@@ -22,7 +22,7 @@ test_mlfqs_load_1 (void)
   int load_avg;
   
   ASSERT (thread_mlfqs);
-
+  
   msg ("spinning for up to 45 seconds, please wait...");
 
   start_time = timer_ticks ();
