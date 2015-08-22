@@ -165,7 +165,6 @@ thread_tick (void)
 	  if (thread != idle_thread)
 	    thread->priority = calculate_new_priority (thread);
 	}
-
     }
 
   if (timer_ticks () % TIMER_FREQ == 0
@@ -186,7 +185,7 @@ thread_tick (void)
 	  thread->recent_cpu = 
 	    add_integer (mul (div (mul_integer (load_avg, 2)
 				   , add_integer (mul_integer (load_avg, 2), 1))
-			      , thread->recent_cpu), t->nice);
+			      , thread->recent_cpu), thread->nice);
 	}
     }
   /* Enforce preemption. */
@@ -471,7 +470,6 @@ thread_set_nice (int new_nice)
 
   if (thread_current () != idle_thread)
     thread_current ()->priority = calculate_new_priority (thread_current ());
-
 }
 
 /* Returns the current thread's nice value. */
