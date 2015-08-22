@@ -106,13 +106,10 @@ timer_sleep (int64_t ticks)
   int64_t start = timer_ticks ();
   ASSERT (intr_get_level () == INTR_ON);
 
-  /*  while (timer_elapsed (start) < ticks) {
-    thread_yield ();
-  } */
   if (timer_elapsed (start) < ticks)
     {
       struct sleeping_thread * new;
-      new = (struct sleeping_thread *) malloc (sizeof (struct sleeping_thread));
+      new = malloc (sizeof (struct sleeping_thread));
       new->th = thread_current();
       new->ticks_left = --ticks;
       list_push_back (&sleeping_threads_list, &(new->elem));
@@ -120,7 +117,6 @@ timer_sleep (int64_t ticks)
       thread_block ();
       intr_set_level (old_level);
     }
-
 }
 
 /* Sleeps for approximately MS milliseconds.  Interrupts must be

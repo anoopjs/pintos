@@ -99,6 +99,7 @@ struct thread
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
     struct list_elem sema_elem;         /* List element for semaphore waiting list. */
+    struct list_elem timer_elem;
 
     int nice;
     fixed_point recent_cpu;

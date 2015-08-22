@@ -124,12 +124,23 @@ thread_start (void)
   sema_down (&idle_started);
 }
 
+int
+calculate_new_priority (struct thread *t)
+{
+  return fixed_to_int_near (sub
+			    (sub (fixed (PRI_MAX),
+				  div (t->recent_cpu, fixed (4)))
+			     , fixed (t->nice * 2)));
+}
+
 /* Called by the timer interrupt handler at each timer tick.
    Thus, this function runs in an external interrupt context. */
 void
 thread_tick (void) 
 {
   struct thread *t = thread_current ();
+  struct list_elem *e;
+  struct thread *thread;
   int ready_threads;
 
   /* Update statistics. */
@@ -145,7 +156,20 @@ thread_tick (void)
   if (t != idle_thread)
     t->recent_cpu = add_integer (t->recent_cpu, 1);
 
-  if (timer_ticks () % TIMER_FREQ == 0)
+  if (timer_ticks () % 4 == 0 && thread_mlfqs)
+    {
+      for (e = list_begin (&all_list); e != list_end (&all_list);
+	   e = list_next (e))
+	{
+	  thread = list_entry (e, struct thread, allelem);
+	  if (thread != idle_thread)
+	    thread->priority = calculate_new_priority (thread);
+	}
+
+    }
+
+  if (timer_ticks () % TIMER_FREQ == 0
+      && thread_mlfqs)
     {
       ready_threads = list_size (&ready_list);
       if (t != idle_thread)
@@ -153,10 +177,17 @@ thread_tick (void)
 
       load_avg = add (mul (div (fixed (59), fixed (60)), load_avg),
        		      mul_integer (div (fixed (1), fixed (60)), ready_threads));
-      t->recent_cpu = add_integer (mul (div (mul_integer (load_avg, 2)
-					     , add_integer (mul_integer (load_avg, 2), 1))
-					, t->recent_cpu), t->nice);
-      //      printf("New recent_cpu is %d\n", fixed_to_int_near(t->recent_cpu));
+
+      for (e = list_begin (&all_list); e != list_end (&all_list);
+	   e = list_next (e))
+	{
+	  thread = list_entry (e, struct thread, allelem);
+	  
+	  thread->recent_cpu = 
+	    add_integer (mul (div (mul_integer (load_avg, 2)
+				   , add_integer (mul_integer (load_avg, 2), 1))
+			      , thread->recent_cpu), t->nice);
+	}
     }
   /* Enforce preemption. */
   if (++thread_ticks >= TIME_SLICE)
@@ -304,7 +335,7 @@ thread_unblock (struct thread *t)
   intr_set_level (old_level);
 
   if (thread_get_priority () < get_thread_priority(t) 
-      && thread_current () != idle_thread)
+      && thread_current () != idle_thread && !intr_context ())
     thread_yield ();
 }
 
@@ -429,18 +460,18 @@ get_thread_priority (struct thread *t)
 {
   return (t->priority > t->donated_priority) ? t->priority : t->donated_priority;
 }
+
 /* Sets the current thread's nice value to NICE. */
 void
 thread_set_nice (int new_nice) 
 {
- int priority  = 
-    fixed_to_int_near (sub_integer
-		       (sub (fixed (PRI_MAX),
-			     div_integer (thread_current ()->recent_cpu, 4))
-			, (new_nice * 2)));
+  struct thread * ready_list_head;
+
   thread_current ()->nice = new_nice;
-  printf ("Full %d First %d Second %d Third %d\n", priority, PRI_MAX, fixed_to_int_near 
-  	  (div (thread_current ()->recent_cpu, fixed (4))), (new_nice * 2));
+
+  if (thread_current () != idle_thread)
+    thread_current ()->priority = calculate_new_priority (thread_current ());
+
 }
 
 /* Returns the current thread's nice value. */
