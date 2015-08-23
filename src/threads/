@@ -1,0 +1,99 @@
+init.c <unknown> 94   printf ("Pintos booting with %'"PRIu32" kB RAM...\n",
+init.c <unknown> 130   printf ("Boot complete.\n");
+init.c <unknown> 215   printf ("Kernel command line:");
+init.c <unknown> 218       printf (" %s", argv[i]);
+init.c <unknown> 220       printf (" '%s'", argv[i]);
+init.c <unknown> 221   printf ("\n");
+init.c <unknown> 286   printf ("Executing '%s':\n", task);
+init.c <unknown> 292   printf ("Execution of '%s' complete.\n", task);
+init.c <unknown> 351   printf ("\nCommand line syntax: [OPTION...] [ACTION...]\n"
+init.c <unknown> 425       printf ("%s: using %s\n", block_type_name (role), block_name (block));
+interrupt.c <unknown> 399   /* If the number is a power of 2, print a message.  This rate
+interrupt.c <unknown> 405     printf ("Unexpected interrupt %#04x (%s)\n",
+interrupt.c <unknown> 422   printf ("Interrupt %#04x (%s) at eip=%p\n",
+interrupt.c <unknown> 424   printf (" cr2=%08"PRIx32" error=%08"PRIx32"\n", cr2, f->error_code);
+interrupt.c <unknown> 425   printf (" eax=%08"PRIx32" ebx=%08"PRIx32" ecx=%08"PRIx32" edx=%08"PRIx32"\n",
+interrupt.c <unknown> 427   printf (" esi=%08"PRIx32" edi=%08"PRIx32" esp=%08"PRIx32" ebp=%08"PRIx32"\n",
+interrupt.c <unknown> 429   printf (" cs=%04"PRIx16" ds=%04"PRIx16" es=%04"PRIx16" ss=%04"PRIx16"\n",
+palloc.c <unknown> 164   printf ("%zu pages available in %s.\n", page_cnt, name);
+synch.c <unknown> 131    between a pair of threads.  Insert calls to printf() to see
+synch.c <unknown> 139   printf ("Testing semaphores...");
+synch.c <unknown> 148   printf ("done.\n");
+thread.c <unknown> 146 thread_print_stats (void) 
+thread.c <unknown> 148   printf ("Thread: %lld idle ticks, %lld kernel ticks, %lld user ticks\n",
+thread.c <unknown> 243 print_list (struct list *list)
+thread.c <unknown> 251       printf("%s ", t->name);
+thread.c <unknown> 253   printf("\n");
+thread.c <unknown> 569    It's not safe to call printf() until the thread switch is
+thread.c <unknown> 570    complete.  In practice that means that printf()s should be
+thread.c <unknown> 610    It's not safe to call printf() until thread_schedule_tail()
+thread.h <unknown> 115 void thread_print_stats (void);
+thread.h <unknown> 117 void print_list (struct list *);
+/usr/include/inttypes.h <unknown> 27  * specifiers suitable for use within arguments to fprintf and fscanf
+/usr/include/stdio.h <unknown> 171 #define	__SSTR	0x0200		/* this is an sprintf/snprintf string */
+/usr/include/stdio.h <unknown> 244 int	 fprintf(FILE * __restrict, const char * __restrict, ...) __printflike(2, 3);
+/usr/include/stdio.h <unknown> 259 int	 printf(const char * __restrict, ...) __printflike(1, 2);
+/usr/include/stdio.h <unknown> 269 int	 sprintf(char * __restrict, const char * __restrict, ...) __printflike(2, 3);
+/usr/include/stdio.h <unknown> 278 int	 vfprintf(FILE * __restrict, const char * __restrict, va_list) __printflike(2, 0);
+/usr/include/stdio.h <unknown> 279 int	 vprintf(const char * __restrict, va_list) __printflike(1, 0);
+/usr/include/stdio.h <unknown> 280 int	 vsprintf(char * __restrict, const char * __restrict, va_list) __printflike(2, 0);
+/usr/include/stdio.h <unknown> 421 int	 snprintf(char * __restrict, size_t, const char * __restrict, ...) __printflike(3, 4);
+/usr/include/stdio.h <unknown> 424 int	 vsnprintf(char * __restrict, size_t, const char * __restrict, va_list) __printflike(3, 0);
+/usr/include/stdio.h <unknown> 439 int	dprintf(int, const char * __restrict, ...) __printflike(2, 3) __OSX_AVAILABLE_STARTING(__MAC_10_7, __IPHONE_4_3);
+/usr/include/stdio.h <unknown> 440 int	vdprintf(int, const char * __restrict, va_list) __printflike(2, 0) __OSX_AVAILABLE_STARTING(__MAC_10_7, __IPHONE_4_3);
+/usr/include/stdio.h <unknown> 455 int	 asprintf(char ** __restrict, const char * __restrict, ...) __printflike(2, 3);
+/usr/include/stdio.h <unknown> 462 int	 vasprintf(char ** __restrict, const char * __restrict, va_list) __printflike(2, 0);
+/usr/include/secure/_stdio.h <unknown> 40 /* sprintf, vsprintf, snprintf, vsnprintf */
+/usr/include/secure/_stdio.h <unknown> 41 #if __has_builtin(__builtin___sprintf_chk) || defined(__GNUC__)
+/usr/include/secure/_stdio.h <unknown> 42 extern int __sprintf_chk (char * __restrict, int, size_t,
+/usr/include/secure/_stdio.h <unknown> 45 #undef sprintf
+/usr/include/secure/_stdio.h <unknown> 46 #define sprintf(str, ...) \
+/usr/include/secure/_stdio.h <unknown> 47   __builtin___sprintf_chk (str, 0, __darwin_obsz(str), __VA_ARGS__)
+/usr/include/secure/_stdio.h <unknown> 51 #if __has_builtin(__builtin___snprintf_chk) || defined(__GNUC__)
+/usr/include/secure/_stdio.h <unknown> 52 extern int __snprintf_chk (char * __restrict, size_t, int, size_t,
+/usr/include/secure/_stdio.h <unknown> 55 #undef snprintf
+/usr/include/secure/_stdio.h <unknown> 56 #define snprintf(str, len, ...) \
+/usr/include/secure/_stdio.h <unknown> 57   __builtin___snprintf_chk (str, len, 0, __darwin_obsz(str), __VA_ARGS__)
+/usr/include/secure/_stdio.h <unknown> 60 #if __has_builtin(__builtin___vsprintf_chk) || defined(__GNUC__)
+/usr/include/secure/_stdio.h <unknown> 61 extern int __vsprintf_chk (char * __restrict, int, size_t,
+/usr/include/secure/_stdio.h <unknown> 64 #undef vsprintf
+/usr/include/secure/_stdio.h <unknown> 65 #define vsprintf(str, format, ap) \
+/usr/include/secure/_stdio.h <unknown> 66   __builtin___vsprintf_chk (str, 0, __darwin_obsz(str), format, ap)
+/usr/include/secure/_stdio.h <unknown> 69 #if __has_builtin(__builtin___vsnprintf_chk) || defined(__GNUC__)
+/usr/include/secure/_stdio.h <unknown> 70 extern int __vsnprintf_chk (char * __restrict, size_t, int, size_t,
+/usr/include/secure/_stdio.h <unknown> 73 #undef vsnprintf
+/usr/include/secure/_stdio.h <unknown> 74 #define vsnprintf(str, len, format, ap) \
+/usr/include/secure/_stdio.h <unknown> 75   __builtin___vsnprintf_chk (str, len, 0, __darwin_obsz(str), format, ap)
+/usr/include/sys/cdefs.h <unknown> 150  * __deprecated_msg() does the same, and compilers that support it will print
+/usr/include/sys/cdefs.h <unknown> 154  * it will print the deprecation warning.
+/usr/include/sys/cdefs.h <unknown> 264  * Compiler-dependent macros to declare that functions take printf-like
+/usr/include/sys/cdefs.h <unknown> 271 #define __printflike(fmtarg, firstvararg) \
+/usr/include/sys/cdefs.h <unknown> 272 		__attribute__((__format__ (__printf__, fmtarg, firstvararg)))
+/usr/include/xlocale/_stdio.h <unknown> 29 int	 fprintf_l(FILE * __restrict, locale_t __restrict, const char * __restrict, ...)
+/usr/include/xlocale/_stdio.h <unknown> 30         __printflike(3, 4);
+/usr/include/xlocale/_stdio.h <unknown> 33 int	 printf_l(locale_t __restrict, const char * __restrict, ...)
+/usr/include/xlocale/_stdio.h <unknown> 34         __printflike(2, 3);
+/usr/include/xlocale/_stdio.h <unknown> 37 int	 sprintf_l(char * __restrict, locale_t __restrict, const char * __restrict, ...)
+/usr/include/xlocale/_stdio.h <unknown> 38         __printflike(3, 4);
+/usr/include/xlocale/_stdio.h <unknown> 41 int	 vfprintf_l(FILE * __restrict, locale_t __restrict, const char * __restrict, va_list)
+/usr/include/xlocale/_stdio.h <unknown> 42         __printflike(3, 0);
+/usr/include/xlocale/_stdio.h <unknown> 43 int	 vprintf_l(locale_t __restrict, const char * __restrict, va_list)
+/usr/include/xlocale/_stdio.h <unknown> 44         __printflike(2, 0);
+/usr/include/xlocale/_stdio.h <unknown> 45 int	 vsprintf_l(char * __restrict, locale_t __restrict, const char * __restrict, va_list)
+/usr/include/xlocale/_stdio.h <unknown> 46         __printflike(3, 0);
+/usr/include/xlocale/_stdio.h <unknown> 49 int	 snprintf_l(char * __restrict, size_t, locale_t __restrict, const char * __restrict, ...)
+/usr/include/xlocale/_stdio.h <unknown> 50         __printflike(4, 5);
+/usr/include/xlocale/_stdio.h <unknown> 55 int	 vsnprintf_l(char * __restrict, size_t, locale_t __restrict, const char * __restrict, va_list)
+/usr/include/xlocale/_stdio.h <unknown> 56         __printflike(4, 0);
+/usr/include/xlocale/_stdio.h <unknown> 62 int	 dprintf_l(int, locale_t __restrict, const char * __restrict, ...)
+/usr/include/xlocale/_stdio.h <unknown> 63         __printflike(3, 4) __OSX_AVAILABLE_STARTING(__MAC_10_7, __IPHONE_4_3);
+/usr/include/xlocale/_stdio.h <unknown> 64 int	 vdprintf_l(int, locale_t __restrict, const char * __restrict, va_list)
+/usr/include/xlocale/_stdio.h <unknown> 65         __printflike(3, 0) __OSX_AVAILABLE_STARTING(__MAC_10_7, __IPHONE_4_3);
+/usr/include/xlocale/_stdio.h <unknown> 70 int	 asprintf_l(char ** __restrict, locale_t __restrict, const char * __restrict, ...)
+/usr/include/xlocale/_stdio.h <unknown> 71         __printflike(3, 4);
+/usr/include/xlocale/_stdio.h <unknown> 72 int	 vasprintf_l(char ** __restrict, locale_t __restrict, const char * __restrict, va_list)
+/usr/include/xlocale/_stdio.h <unknown> 73         __printflike(3, 0);
+/usr/include/sys/resource.h <unknown> 203 	uint64_t ri_phys_footprint;
+/usr/include/sys/resource.h <unknown> 217 	uint64_t ri_phys_footprint;
+/usr/include/sys/resource.h <unknown> 237 	uint64_t ri_phys_footprint;
+/usr/include/sys/resource.h <unknown> 259 	uint64_t ri_phys_footprint;

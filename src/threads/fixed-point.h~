@@ -1,0 +1,9 @@
+#ifndef FIXED_POINT_H
+#define FIXED_POINT_H
+
+#include <stdint.h>
+
+typedef int fixed_point;
+
+int fixed (int);
+int integer (int);
