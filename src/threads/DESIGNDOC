@@ -158,8 +158,8 @@ When lock_release is called, withdraw_donation will be called. It will fetch inf
 >> how your implementation avoids it.  Can you use a lock to avoid
 >> this race?
 
-Interrupts are disabled before the threads priority is being set and enabled after it is set.
-We cannot use lock to avoid this race, since a potential race condition can occur while accesseing ready_list data structure.
+Interrupts are disabled before the threads priority is being set and enabled after it is set. Potential race condition can occur while accesseing ready_list data structure.
+We cannot use lock to avoid this race, since using lock for accessing ready_list will prevent thread switching.
 
 ---- RATIONALE ----
 
