@@ -8,9 +8,8 @@
 
 >> Fill in the names and email addresses of your group members.
 
-FirstName LastName <email@domain.example>
-FirstName LastName <email@domain.example>
-FirstName LastName <email@domain.example>
+Anoop J S <anoop.js@csa.iisc.ernet.in>
+
 
 ---- PRELIMINARIES ----
 
@@ -30,26 +29,59 @@ FirstName LastName <email@domain.example>
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
 
+timer.c
+-------
+struct sleeping_thread -- Used to store all the threads are sleeping currently, along with the number of ticks before which they are awake. A better design would have been to simply include the numbere of ticks in struct thread itself. But that idea didn't come till later.
+
+struct list sleeping_threads_list -- The list containing list_elem members of struct sleeping thread
+
+Inside synch.c
+--------------
+
+- void donate(struct thread *from, struct thread*to, struct lock *lock) -- to donate priority from `from` to `to`
+- void donate_nest(struct thread *from, struct thread*to, struct lock *lock) -- to donate priority from `from` to `to` and nest onwards.
+- withdraw_donation (struct thread *of, struct lock *lock) -- to withdraw donation based on a lock.
+
+Inside synch.h
+--------------
+
+struct donate_prioroty -- to store information regarding a donation received
+- struct lock *lock -- for which lock donation was received.
+
+
 ---- ALGORITHMS ----
 
 >> A2: Briefly describe what happens in a call to timer_sleep(),
 >> including the effects of the timer interrupt handler.
 
+On a call to timer_sleep, interrupt is disabled. The thread along with number of ticks left is stored in sleeping_threads list. And the thread is blocked.
+
+On each call to timer_interrupt, ticks are incremented, and sleeping_thread list is iterated and ticks left of each thread is decremented. If a ticks_left of any thread has reached zero, then that thread is unblocked.
+
 >> A3: What steps are taken to minimize the amount of time spent in
 >> the timer interrupt handler?
+
+Removed busy wait and replaced with thread_block and thread_unblock calls.
 
 ---- SYNCHRONIZATION ----
 
 >> A4: How are race conditions avoided when multiple threads call
 >> timer_sleep() simultaneously?
 
+By disabling the interrupts on begin and enabling it again on end of that function.
+
 >> A5: How are race conditions avoided when a timer interrupt occurs
 >> during a call to timer_sleep()?
+
+Disabling the interrupts in timer_sleep is enough to avoid race condition.
 
 ---- RATIONALE ----
 
 >> A6: Why did you choose this design?  In what ways is it superior to
 >> another design you considered?
+
+This is the only design I was able to think of.
+
 
 			 PRIORITY SCHEDULING
 			 ===================
@@ -60,6 +92,19 @@ FirstName LastName <email@domain.example>
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
 
+Inside struct thread
+--------------------
+- int donated_priority -- store donated priority received from other threads.
+- struct thread *donated_by -- store the thread whose donation is currently active.
+- struct lock * waiting_for_lock -- stores the lock the thread is currently waiting for.
+- struct semaphore * waiting_for_semaphore -- stores the semaphore the thread is waiting for.
+- struct list donate_list -- the list of donations that the thread has received.
+- struct list_elem sema_elem -- the list_elem used to create list of threads waiting for a sema.
+
+void thread_push_priority -- to push a thread in a thread list based on priority value.
+get_thread_priority -- to get priority of a thread passed as argument.
+set_thread_priority -- to set the priority of a thread passed as argument.
+
 >> B2: Explain the data structure used to track priority donation.
 >> Use ASCII art to diagram a nested donation.  (Alternately, submit a
 >> .png file.)
@@ -68,12 +113,17 @@ FirstName LastName <email@domain.example>
 
 >> B3: How do you ensure that the highest priority thread waiting for
 >> a lock, semaphore, or condition variable wakes up first?
+When a thread is being blocked due to a lock, semaphore or condition variable, it is pushed to the ewaiting list on a location based on it's priority. Thus a thread with highest priority is pushed to the beginning of the list.
 
 >> B4: Describe the sequence of events when a call to lock_acquire()
 >> causes a priority donation.  How is nested donation handled?
 
+When lock_acquire is called and that lock was acquired by a blocked thread before, then donate_nest function will be called. donate_nest will use the waiting_for_lock and lock->holder data structures to nest donations till it reaches a thread that is not blocked due to lock_acquire.
+
 >> B5: Describe the sequence of events when lock_release() is called
 >> on a lock that a higher-priority thread is waiting for.
+
+When lock_release is called, withdraw_donation will be called. It will fetch information from the donate_list to know which all threads have donated for that particular lock, and donations from those threads will be removed and another donation will be activated.
 
 ---- SYNCHRONIZATION ----
 
@@ -81,10 +131,16 @@ FirstName LastName <email@domain.example>
 >> how your implementation avoids it.  Can you use a lock to avoid
 >> this race?
 
+Interrupts are disabled before the threads priority is being set and enabled after it is set.
+We cannot use lock to avoid this race, since waiting for lock activates priority donation which in turns could call thread_set_priority which can block the system.
+
 ---- RATIONALE ----
 
 >> B7: Why did you choose this design?  In what ways is it superior to
 >> another design you considered?
+
+This design makes use of more data structures inorder to minimize the execution time required to fetch information that will take iterations.
+
 
 			  ADVANCED SCHEDULER
 			  ==================
@@ -94,6 +150,12 @@ FirstName LastName <email@domain.example>
 >> C1: Copy here the declaration of each new or changed `struct' or
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
+Inside struct thread
+--------------------
+- int nice -- to store the nice value of that thread.
+- fixed_point recept_cpu -- to store the recent cpu value of that thread.
+
+fixed_point load_avg -- to store the load average of the system.
 
 ---- ALGORITHMS ----
 
