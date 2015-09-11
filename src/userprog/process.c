@@ -17,7 +17,8 @@
 #include "threads/palloc.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
-
+#include "threads/malloc.h"
+ 
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
 
@@ -39,7 +40,7 @@ process_execute (const char *file_name)
   strlcpy (fn_copy, file_name, PGSIZE);
 
   /* Create a new thread to execute FILE_NAME. */
-  tid = thread_create (file_name, PRI_DEFAULT, start_process, fn_copy);
+  tid = thread_create (file_name, PRI_DEFAULT + 10, start_process, fn_copy);
   if (tid == TID_ERROR)
     palloc_free_page (fn_copy); 
   return tid;
@@ -214,7 +215,9 @@ load (const char *file_name, void (**eip) (void), void **esp)
   off_t file_ofs;
   bool success = false;
   int i;
+  char * f_name, * brkt;
 
+  f_name = strtok_r (file_name, " ", &brkt);
   /* Allocate and activate page directory. */
   t->pagedir = pagedir_create ();
   if (t->pagedir == NULL) 
@@ -222,10 +225,10 @@ load (const char *file_name, void (**eip) (void), void **esp)
   process_activate ();
 
   /* Open executable file. */
-  file = filesys_open (file_name);
+  file = filesys_open (f_name);
   if (file == NULL) 
     {
-      printf ("load: %s: open failed\n", file_name);
+      printf ("load: %s: open failed\n", f_name);
       goto done; 
     }
 
@@ -238,7 +241,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
       || ehdr.e_phentsize != sizeof (struct Elf32_Phdr)
       || ehdr.e_phnum > 1024) 
     {
-      printf ("load: %s: error loading executable\n", file_name);
+      printf ("load: %s: error loading executable\n", f_name);
       goto done; 
     }
 
@@ -301,9 +304,66 @@ load (const char *file_name, void (**eip) (void), void **esp)
         }
     }
 
+  int argc = 1, num, argnum; char **argv; 
+  char *arg;
+  char *sep = " ";
+  uint32_t addr[100];
+  char *args[100];
+  void *current_p;
   /* Set up stack. */
   if (!setup_stack (esp))
-    goto done;
+    {
+      goto done;
+    }
+  else {
+    for (arg = strtok_r(NULL, sep, &brkt);
+	 arg;
+	 argc++, arg = strtok_r(NULL, sep, &brkt))
+      {
+	args[argc] = malloc (strlen (arg) + 1);
+	strlcpy (args[argc], arg, strlen (arg) + 1);
+      }
+    argc--;
+    argnum = argc;
+    args[0] = malloc (strlen (f_name) + 1);
+    strlcpy (args[0], f_name, strlen (f_name) + 1);
+    addr[0] = *esp - (strlen (args[argnum]) + 1);
+
+    // Push arguments to the stack
+    for (num = 0; argnum >= 0;)
+      {
+	strlcpy (addr[num], args[argnum], strlen (args[argnum]) + 1);
+	--argnum; ++num;
+	if (argnum >= 0)
+	  addr[num] = addr[num - 1] - (strlen (args[argnum]) + 1);
+      }
+
+    // memset with 0 to align
+    --num;
+    memset (addr[num] - ((addr[num] % 4)), 0, ((addr[num] % 4)));
+    current_p = addr[num] - ((addr[num] % 4));
+    
+    // null pointer for argv[argc]
+    memset (current_p - 4, 0, 4);
+    current_p -= (sizeof (uint32_t));
+
+    for (i = 0; i <= num ; i++) 
+      {
+	current_p -= (sizeof (uint32_t));
+	*((uint32_t *)current_p) = addr[i];
+      }
+
+    // argv
+    current_p -= (sizeof (uint32_t));
+    *((uint32_t *) current_p ) = current_p + (sizeof (uint32_t));
+    // argc
+    current_p -= (sizeof (uint32_t));
+    *((uint32_t *) current_p ) = argc + 1;
+
+
+    current_p -= (sizeof (uint32_t));
+    *esp = current_p;
+  }
 
   /* Start address. */
   *eip = (void (*) (void)) ehdr.e_entry;

@@ -7,7 +7,7 @@ GDBMACROS=$(dirname $0)/../misc/gdb-macros
 if command -v i386-elf-gdb >/dev/null 2>&1; then
 	GDB=i386-elf-gdb
 else
-	GDB=gdb
+	GDB=~/Downloads/opt/i386dev/bin/i386-elf-gdb
 fi
 
 # Run GDB.

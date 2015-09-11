@@ -334,8 +334,17 @@ thread_unblock (struct thread *t)
   intr_set_level (old_level);
 
   if (thread_get_priority () < get_thread_priority(t) 
-      && thread_current () != idle_thread && !intr_context ())
-    thread_yield ();
+      && thread_current () != idle_thread)
+    {
+      if (!intr_context ())
+	{
+	  thread_yield ();
+	}
+      else 
+	{
+	  intr_yield_on_return ();      
+	}
+    }
 }
 
 /* Returns the name of the running thread. */
