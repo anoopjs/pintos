@@ -5,7 +5,7 @@
 #include <list.h>
 #include <stdint.h>
 #include "threads/fixed-point.h"
-
+#include "threads/synch.h"
 /* States in a thread's life cycle. */
 enum thread_status
   {
@@ -103,8 +103,10 @@ struct thread
 
     int nice;
     fixed_point recent_cpu;
+
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
+    struct semaphore alive;
     uint32_t *pagedir;                  /* Page directory. */
 #endif
 
@@ -119,6 +121,7 @@ extern bool thread_mlfqs;
 fixed_point load_avg;
 void thread_init (void);
 void thread_start (void);
+struct list all_list;
 
 void thread_tick (void);
 void thread_print_stats (void);

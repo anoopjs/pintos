@@ -27,7 +27,7 @@ static struct list ready_list;
 
 /* List of all processes.  Processes are added to this list
    when they are first scheduled and removed when they exit. */
-static struct list all_list;
+//static struct list all_list;
 
 /* Idle thread. */
 static struct thread *idle_thread;
@@ -258,6 +258,8 @@ thread_create (const char *name, int priority,
   t->donated_by = NULL;
   t->nice = thread_get_nice ();
   t->recent_cpu = thread_get_recent_cpu ();
+
+  sema_init (&t->alive, 0);
 
   /* Add to run queue. */
   thread_unblock (t);
