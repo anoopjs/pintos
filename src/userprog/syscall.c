@@ -16,6 +16,7 @@
 #include "devices/shutdown.h"
 
 char *read_string (uint32_t);
+struct file *get_file_from_handle (int);
 void handle_sys_exit (struct intr_frame *, int);
 void handle_sys_create (struct intr_frame *);
 void handle_sys_open (struct intr_frame *);
@@ -106,8 +107,8 @@ handle_sys_exit (struct intr_frame *f, int status)
   exit_message = malloc (exit_message_size);
   if (status == (int) NULL)
     status = ARG0;
-  snprintf (exit_message, exit_message_size, 
-	    "%s: exit(%d)\n", buffer, status);
+  snprintf (exit_message, exit_message_size,
+  	    "%s: exit(%d)\n", buffer, status);
   putbuf (exit_message, strlen (exit_message));
   f->eax = status;
   child_status = status;
@@ -118,49 +119,33 @@ void
 handle_sys_write (struct intr_frame *f)
 {
   uint32_t ARG0, ARG1, ARG2;
-  char *buffer;
+  uint8_t *buffer;
   int i;
   ARG0 = *(uint32_t *) (f->esp + (sizeof (uint32_t)));
   ARG1 = *(uint32_t *) (f->esp + (sizeof (uint32_t) * 2));
   ARG2 = *(uint32_t *) (f->esp + (sizeof (uint32_t) * 3));
 
-  struct thread *cur = thread_current ();
-  struct list *list = &cur->file_descriptors;
-  struct file_descriptor *file_desc;
-  struct list_elem *e;
   struct file *file = NULL;
 
-  buffer = malloc (ARG2 + 1);
-  for (i = 0; i <= (int) ARG2; i++)
+  buffer = malloc (ARG2);
+  for (i = 0; i < (int) ARG2; i++)
     {
       buffer[i] = get_user ((uint8_t *)(ARG1 + i));
-      if (buffer[i] == '\0')
-	break;
     }
 
   if (ARG0 == 1)
     {
-      putbuf (buffer, strlen (buffer));
+      putbuf (buffer, ARG2);
       f->eax = ARG2;
     }
   else if (ARG0 == 0)
     handle_sys_exit (f, -1);
   else
     {
-      for (e = list_begin (list); e != list_end (list);
-	   e = list_next (e))
-	{
-	  file_desc = list_entry (e, struct file_descriptor, elem);
-	  if (file_desc->fd == (int) ARG0)
-	    {
-	      file = file_desc->file;
-	      break;
-	    }
-	}
-
+      file = get_file_from_handle ((int) ARG0);
       if (file == NULL)
 	handle_sys_exit (f, -1);
-
+      
       f->eax = file_write (file, buffer, ARG2);
     }
 
@@ -293,16 +278,9 @@ handle_sys_close (struct intr_frame *f)
   handle_sys_exit (f, -1);
 }
 
-void
-handle_sys_read (struct intr_frame *f)
+struct file *
+get_file_from_handle (int fd)
 {
-  uint32_t fd, buffer, size;
-  fd = *(uint32_t *) (f->esp + (sizeof (uint32_t)));
-  buffer = *(uint32_t *) (f->esp + (sizeof (uint32_t)) * 2);
-  size = *(uint32_t *) (f->esp + (sizeof (uint32_t)) * 3);
-  int i;
-
-  char *buffer_temp = malloc ((size + 1) * sizeof (char));
   struct thread *cur = thread_current ();
   struct list *list = &cur->file_descriptors;
   struct file_descriptor *file_desc;
@@ -318,14 +296,30 @@ handle_sys_read (struct intr_frame *f)
 	  break;
 	}
     }
+  return file;
+}
 
+void
+handle_sys_read (struct intr_frame *f)
+{
+  uint32_t fd, buffer, size;
+  fd = *(uint32_t *) (f->esp + (sizeof (uint32_t)));
+  buffer = *(uint32_t *) (f->esp + (sizeof (uint32_t)) * 2);
+  size = *(uint32_t *) (f->esp + (sizeof (uint32_t)) * 3);
+  int i;
+  struct file *file = NULL;
+
+  char *buffer_temp = malloc (size);
+
+  file = get_file_from_handle (fd);
   if (file == NULL)
     handle_sys_exit (f, -1);
 
   file_read (file, buffer_temp, size);
-  buffer_temp [size] = '\0';
   for (i = 0; i < (int) size; i++)
-    put_user ((void *) buffer + i, buffer_temp[i]);
+    {
+      put_user ((void *) buffer + i, buffer_temp[i]);
+    }
 
   f->eax = size;
 }
@@ -373,7 +367,7 @@ handle_sys_exec (struct intr_frame *f)
     }
 
   child_tid = process_execute (cmd_line);
-  sema_down (&load_sema);
+  //  sema_down (&load_sema);
   if (!load_success || child_tid == TID_ERROR)
     f->eax = -1;
   else
@@ -389,6 +383,24 @@ handle_sys_wait (struct intr_frame *f)
   
   f->eax = process_wait (child_tid);
 }
+
+void 
+handle_sys_seek (struct intr_frame *f)
+{
+  uint32_t handle, position;
+  tid_t child_tid;
+  handle = *(uint32_t *) (f->esp + (sizeof (uint32_t)));
+  position  = *(uint32_t *) (f->esp + (sizeof (uint32_t)) * 2);
+
+  struct file *file = get_file_from_handle (handle);
+  if (file == NULL)
+    f->eax = -1;
+  else
+    file_seek (file, position);
+    
+  f->eax = process_wait (child_tid);
+}
+
 static void
 syscall_handler (struct intr_frame *f) 
 {
@@ -423,6 +435,9 @@ syscall_handler (struct intr_frame *f)
       break;
     case SYS_CLOSE :
       handle_sys_close (f);
+      break;
+    case SYS_SEEK :
+      handle_sys_seek (f);
       break;
     default :
       break;

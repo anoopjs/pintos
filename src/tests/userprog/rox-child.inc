@@ -17,10 +17,11 @@ test_main (void)
   CHECK (read (handle, buffer, sizeof buffer) == (int) sizeof buffer,
          "read \"child-rox\"");
   seek (handle, 0);
+
   CHECK (write (handle, buffer, sizeof buffer) == (int) sizeof buffer,
          "write \"child-rox\"");
 
-  /* Execute child-rox and wait for it. */
+  /*Execute child-rox and wait for it.*/
   CHECK ((child = exec (child_cmd)) != -1, "exec \"%s\"", child_cmd);
   quiet = true;
   CHECK (wait (child) == 12, "wait for child");

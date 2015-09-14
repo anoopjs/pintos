@@ -63,7 +63,7 @@ start_process (void *file_name_)
   if_.eflags = FLAG_IF | FLAG_MBS;
   load_success = load (file_name, &if_.eip, &if_.esp);
 
-  sema_up (&load_sema);
+  //  sema_up (&load_sema);
   /* If load failed, quit. */
   palloc_free_page (file_name);
   if (!load_success) 
@@ -93,7 +93,7 @@ process_wait (tid_t child_tid)
 {
   int status;
   struct list_elem *e;
-
+  struct thread *cur = thread_current ();
   for (e = list_begin (&all_list); e != list_end (&all_list);
        e = list_next (e))
     {
@@ -118,6 +118,12 @@ process_exit (void)
   struct thread *cur = thread_current ();
   uint32_t *pd;
 
+#ifdef USERPROG
+  sema_up (&cur->one);
+  sema_down (&cur->two);
+  file_allow_write (cur->file);
+#endif
+  
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
   pd = cur->pagedir;
@@ -134,10 +140,6 @@ process_exit (void)
       pagedir_activate (NULL);
       pagedir_destroy (pd);
     }
-#ifdef USERPROG
-  sema_up (&cur->one);
-  sema_down (&cur->two);
-#endif
 }
 
 /* Sets up the CPU for running user code in the current
@@ -147,7 +149,7 @@ void
 process_activate (void)
 {
   struct thread *t = thread_current ();
-
+  
   /* Activate thread's page tables. */
   pagedir_activate (t->pagedir);
 
@@ -254,6 +256,8 @@ load (const char *file_name, void (**eip) (void), void **esp)
       printf ("load: %s: open failed\n", f_name);
       goto done; 
     }
+  thread_current ()->file = file;
+  file_deny_write (file);
 
   /* Read and verify executable header. */
   if (file_read (file, &ehdr, sizeof ehdr) != sizeof ehdr
@@ -395,7 +399,6 @@ load (const char *file_name, void (**eip) (void), void **esp)
 
  done:
   /* We arrive here whether the load is successful or not. */
-  file_close (file);
   return success;
 }
 
