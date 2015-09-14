@@ -1,5 +1,8 @@
 #include "userprog/syscall.h"
+#include "userprog/process.h"
 #include "filesys/directory.h"
+#include "filesys/filesys.h"
+#include "filesys/file.h"
 #include <stdio.h>
 #include <syscall-nr.h>
 #include "threads/interrupt.h"
@@ -8,10 +11,29 @@
 #include "threads/init.h"
 #include "filesys/off_t.h"
 #include "filesys/inode.h"
+#include "threads/malloc.h"
+#include <string.h>
+#include "devices/shutdown.h"
 
-
+char *read_string (uint32_t);
+void handle_sys_exit (struct intr_frame *, int);
+void handle_sys_create (struct intr_frame *);
+void handle_sys_open (struct intr_frame *);
+void handle_sys_write (struct intr_frame *);
+void handle_sys_read (struct intr_frame *);
+void handle_sys_close (struct intr_frame *);
+void handle_sys_filesize (struct intr_frame *);
+void handle_sys_exec (struct intr_frame *);
+void handle_sys_wait (struct intr_frame *);
 static void syscall_handler (struct intr_frame *);
 
+
+struct file_descriptor
+{
+  int fd;
+  struct file *file;
+  struct list_elem elem;
+};
 /* Reads a byte at user virtual address UADDR.
    UADDR must be below PHYS_BASE.
    Returns the byte value if successful, -1 if a segfault
@@ -36,88 +58,136 @@ put_user (uint8_t *udst, uint8_t byte)
        : "=&a" (error_code), "=m" (*udst) : "q" (byte));
   return error_code != -1;
 }
-
+ 
+char *read_string (uint32_t addr)
+{
+  char *file_name;
+  int i;
+  file_name = malloc (sizeof (char) * 100);
+  for (i = 0; i < 100; i++)
+    {
+      file_name[i] = *(char *)(addr + i);
+      if (file_name[i] == '\0')
+      	break;
+    }
+  return file_name;
+}
 void
 syscall_init (void) 
 {
   intr_register_int (0x30, 3, INTR_ON, syscall_handler, "syscall");
 }
 
-void handle_sys_exit (struct intr_frame *f, int status)
+void
+handle_sys_exit (struct intr_frame *f, int status)
 {
-  uint32_t *searcher, ARG0, ARG1, ARG2;
+  uint32_t *searcher, ARG0;
   int ofs, i;
   char *buffer, *exit_message;
   size_t exit_message_size;
-
+  
   ARG0 = *(uint32_t *) (f->esp + (sizeof (uint32_t)));
 
   for (searcher = PHYS_BASE; *searcher != 0; --searcher) ;
   searcher++;
   for (ofs = 0; 
        ofs < 4 
-	 && get_user ((uint32_t *) ((uint32_t) searcher + ofs)) == 0; 
+	 && get_user ((void *)searcher + ofs) == 0; 
        ofs++) ;
-
   buffer = malloc (100 * sizeof (char));
   for (i = 0; i < 100; i++)
     {
-      buffer[i] = get_user ((uint32_t *) 
+      buffer[i] = get_user ((uint8_t *) 
 			    (ofs + i + (uint32_t) searcher));
       if (buffer[i] == '\0')
 	break;
     }
   exit_message_size = sizeof (char) * (strlen(buffer) + 15);
   exit_message = malloc (exit_message_size);
-  if (status == NULL)
+  if (status == (int) NULL)
     status = ARG0;
   snprintf (exit_message, exit_message_size, 
 	    "%s: exit(%d)\n", buffer, status);
   putbuf (exit_message, strlen (exit_message));
   f->eax = status;
+  child_status = status;
   thread_exit ();
 }
 
-void handle_sys_write (struct intr_frame *f)
+void
+handle_sys_write (struct intr_frame *f)
 {
   uint32_t ARG0, ARG1, ARG2;
-  char *buffer, c;
+  char *buffer;
   int i;
   ARG0 = *(uint32_t *) (f->esp + (sizeof (uint32_t)));
   ARG1 = *(uint32_t *) (f->esp + (sizeof (uint32_t) * 2));
   ARG2 = *(uint32_t *) (f->esp + (sizeof (uint32_t) * 3));
 
-  buffer = malloc (sizeof (ARG2));
-  for (i = 0; i < ARG2; i++)
+  struct thread *cur = thread_current ();
+  struct list *list = &cur->file_descriptors;
+  struct file_descriptor *file_desc;
+  struct list_elem *e;
+  struct file *file = NULL;
+
+  buffer = malloc (ARG2 + 1);
+  for (i = 0; i <= (int) ARG2; i++)
     {
-      buffer[i] = get_user (ARG1 + i);
+      buffer[i] = get_user ((uint8_t *)(ARG1 + i));
+      if (buffer[i] == '\0')
+	break;
     }
 
   if (ARG0 == 1)
-    putbuf (buffer, ARG2);
+    {
+      putbuf (buffer, strlen (buffer));
+      f->eax = ARG2;
+    }
+  else if (ARG0 == 0)
+    handle_sys_exit (f, -1);
+  else
+    {
+      for (e = list_begin (list); e != list_end (list);
+	   e = list_next (e))
+	{
+	  file_desc = list_entry (e, struct file_descriptor, elem);
+	  if (file_desc->fd == (int) ARG0)
+	    {
+	      file = file_desc->file;
+	      break;
+	    }
+	}
+
+      if (file == NULL)
+	handle_sys_exit (f, -1);
+
+      f->eax = file_write (file, buffer, ARG2);
+    }
 
   free (buffer);
-  f->eax = ARG2;
 }
-void handle_sys_create (struct intr_frame *f)
+void
+handle_sys_create (struct intr_frame *f)
 {
   char *file_name;
   struct inode *inode = NULL;
   struct dir *d;
   uint32_t ARG1, ARG2;
   int i;
+
   ARG1 = *(uint32_t *) (f->esp + (sizeof (uint32_t)));
   ARG2 = *(uint32_t *) (f->esp + (sizeof (uint32_t)*2));
 
-  if (ARG1 == NULL)
+  if (ARG1 == (uint32_t) NULL)
     {
       handle_sys_exit (f, -1);
       return;
     }
+
   file_name = malloc (sizeof (char) * 100);
   for (i = 0; i < 100; i++)
     {
-      file_name[i] = *(char *)(ARG1 + 4*i);
+      file_name[i] = *(char *)(ARG1 + i);
       if (file_name[i] == '\0')
       	break;
     }
@@ -129,39 +199,232 @@ void handle_sys_create (struct intr_frame *f)
 	f->eax = false;
       else
 	{
-	  /* if (dir_lookup (dir_open_root (), file_name, &inode)) */
-	  /*   { */
-
-	  /*   } */
-	  /* else */
-	  /*   { */
+	  d = dir_open_root ();
+	  if (dir_lookup (d, file_name, &inode))
+	    {
+	      f->eax = false;
+	    }
+	  else
+	    {
 	      filesys_create (file_name, ARG2);
-	      //	    }
+	    }
+	  dir_close (d);
 	}
     }
+  free (file_name);
+}
+
+void 
+handle_sys_open (struct intr_frame *f)
+{
+  struct file *file;
+  uint32_t ARG0;
+  char *file_name;
+  struct file_descriptor * file_descriptor, *cur, *prev;
+  struct list *list;
+  struct list_elem *e;
+  ARG0 = *(uint32_t *) (f->esp + (sizeof (uint32_t)));
+
+  if (ARG0 == 0)
+    {
+      handle_sys_exit (f, -1);
+      return;
+    }
+  file_name = read_string (ARG0);
+  file = filesys_open (file_name);
+  if (file != NULL)
+    {
+      file_descriptor = malloc (sizeof (struct file_descriptor));
+      file_descriptor->file = file;
+      if (list_empty (&thread_current ()->file_descriptors))
+	{
+	  file_descriptor->fd = 2;
+	  list_push_back (&thread_current ()->file_descriptors,
+			  &file_descriptor->elem);
+	  f->eax = 2;
+	}
+      else
+	{
+	  list = &(thread_current ()->file_descriptors);
+	  for (e = list_begin (list); e != list_end (list);
+	       e = list_next (e))
+	    {
+	      cur = list_entry (e, struct file_descriptor, elem);
+	      if (e != list_begin (list) && cur->fd != prev->fd + 1)
+		{ 
+		  file_descriptor->fd = prev->fd + 1;
+		  list_insert (e, &file_descriptor->elem);
+		  f->eax = file_descriptor->fd;
+		}
+	      prev = cur;
+	    }
+	}
+    }
+  else
+    f->eax = -1;
+  free (file_name);
+}
+
+void
+handle_sys_close (struct intr_frame *f)
+{
+  uint32_t ARG0;
+  ARG0 = *(uint32_t *) (f->esp + (sizeof (uint32_t)));
+
+  if (ARG0 < 2)
+    handle_sys_exit (f, -1);
+
+  struct thread *cur = thread_current ();
+  struct list *list = &cur->file_descriptors;
+  struct file_descriptor *file_desc;
+  struct list_elem *e;
+
+  for (e = list_begin (list); e != list_end (list);
+       e = list_next (e))
+    {
+      file_desc = list_entry (e, struct file_descriptor, elem);
+      if (file_desc->fd == (int) ARG0)
+	{
+	  list_remove (&file_desc->elem);
+	  f->eax = true;
+	  return;
+	}
+    }
+  handle_sys_exit (f, -1);
+}
+
+void
+handle_sys_read (struct intr_frame *f)
+{
+  uint32_t fd, buffer, size;
+  fd = *(uint32_t *) (f->esp + (sizeof (uint32_t)));
+  buffer = *(uint32_t *) (f->esp + (sizeof (uint32_t)) * 2);
+  size = *(uint32_t *) (f->esp + (sizeof (uint32_t)) * 3);
+  int i;
+
+  char *buffer_temp = malloc ((size + 1) * sizeof (char));
+  struct thread *cur = thread_current ();
+  struct list *list = &cur->file_descriptors;
+  struct file_descriptor *file_desc;
+  struct list_elem *e;
+  struct file *file = NULL;
+  for (e = list_begin (list); e != list_end (list);
+       e = list_next (e))
+    {
+      file_desc = list_entry (e, struct file_descriptor, elem);
+      if (file_desc->fd == (int) fd)
+	{
+	  file = file_desc->file;
+	  break;
+	}
+    }
+
+  if (file == NULL)
+    handle_sys_exit (f, -1);
+
+  file_read (file, buffer_temp, size);
+  buffer_temp [size] = '\0';
+  for (i = 0; i < (int) size; i++)
+    put_user ((void *) buffer + i, buffer_temp[i]);
+
+  f->eax = size;
+}
+
+void
+handle_sys_filesize (struct intr_frame *f)
+{
+  uint32_t fd;
+  fd = *(uint32_t *) (f->esp + (sizeof (uint32_t)));
+
+  struct thread *cur = thread_current ();
+  struct list *list = &cur->file_descriptors;
+  struct file_descriptor *file_desc;
+  struct list_elem *e;
+  struct file *file = NULL;
+  for (e = list_begin (list); e != list_end (list);
+       e = list_next (e))
+    {
+      file_desc = list_entry (e, struct file_descriptor, elem);
+      if (file_desc->fd == (int) fd)
+	{
+	  file = file_desc->file;
+	  f->eax = file_length (file);
+	  return;
+	}
+    }
+
+  f->eax = false;
+ }
+void
+handle_sys_exec (struct intr_frame *f)
+{
+  uint32_t ARG0;
+  ARG0 = *(uint32_t *) (f->esp + (sizeof (uint32_t)));
+  char *cmd_line;
+  tid_t child_tid;
+  int i;
+
+  cmd_line = malloc (100);
+  for (i = 0; i < 100; i++)
+    {
+      cmd_line[i] = get_user ((uint8_t *)(ARG0 + i));
+      if (cmd_line[i] == '\0')
+	break;
+    }
+
+  child_tid = process_execute (cmd_line);
+  sema_down (&load_sema);
+  if (!load_success || child_tid == TID_ERROR)
+    f->eax = -1;
+  else
+    f->eax = child_tid;
+
+}
+
+void 
+handle_sys_wait (struct intr_frame *f)
+{
+  tid_t child_tid;
+  child_tid = *(uint32_t *) (f->esp + (sizeof (uint32_t)));
+  
+  f->eax = process_wait (child_tid);
 }
 static void
 syscall_handler (struct intr_frame *f) 
 {
-  switch (*(uint32_t *) f->esp)
+  switch ( *(uint32_t *) f->esp)
     {
     case SYS_HALT : 
       shutdown_power_off ();
       break;
     case SYS_EXIT : 
-      handle_sys_exit (f, NULL);
+      handle_sys_exit (f, (int) NULL);
+      break;
+    case SYS_EXEC :
+      handle_sys_exec (f);
+      break;
+    case SYS_WAIT :
+      handle_sys_wait (f);
+      break;
+    case SYS_FILESIZE :
+      handle_sys_filesize (f);
+      break;
+    case SYS_READ :
+      handle_sys_read (f);
       break;
     case SYS_WRITE : 
       handle_sys_write (f);
       break;
     case SYS_CREATE :
-      //hex_dump (0, f->esp, PHYS_BASE - f->esp, 1);
       handle_sys_create (f);
       break;
+    case SYS_OPEN :
+      handle_sys_open (f);
+      break;
+    case SYS_CLOSE :
+      handle_sys_close (f);
+      break;
     default :
-      thread_exit ();
       break;
     }
-
 }
-

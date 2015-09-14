@@ -253,13 +253,15 @@ thread_create (const char *name, int priority,
   sf->ebp = 0;
 
   list_init (&(t->donate_list));
+  list_init (&(t->file_descriptors));
   t->waiting_for_lock = NULL;
   t->waiting_for_semaphore = NULL;
   t->donated_by = NULL;
   t->nice = thread_get_nice ();
   t->recent_cpu = thread_get_recent_cpu ();
 
-  sema_init (&t->alive, 0);
+  sema_init (&t->one, 0);
+  sema_init (&t->two, 0);
 
   /* Add to run queue. */
   thread_unblock (t);
@@ -391,12 +393,12 @@ thread_exit (void)
 #ifdef USERPROG
   process_exit ();
 #endif
-
   /* Remove thread from all threads list, set our status to dying,
      and schedule another process.  That process will destroy us
      when it calls thread_schedule_tail(). */
   intr_disable ();
   list_remove (&thread_current()->allelem);
+  sema_up (&thread_current()->one);
   thread_current ()->status = THREAD_DYING;
   schedule ();
   NOT_REACHED ();

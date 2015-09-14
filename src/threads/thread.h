@@ -104,9 +104,11 @@ struct thread
     int nice;
     fixed_point recent_cpu;
 
+    struct semaphore one;
+    struct semaphore two;
+    struct list file_descriptors;
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
-    struct semaphore alive;
     uint32_t *pagedir;                  /* Page directory. */
 #endif
 

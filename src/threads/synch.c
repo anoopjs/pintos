@@ -56,17 +56,20 @@ waiter_push_priority (struct list* list, struct list_elem *elem)
 {
   struct list_elem *e;
   struct thread *thread = list_entry (elem, struct thread, sema_elem);
-  for (e = list_begin (list); e != list_end (list);
-       e = list_next (e))
+  if (!list_empty (list))
     {
-      struct thread *t = list_entry (e, struct thread, sema_elem);
-      if (get_thread_priority(t) < get_thread_priority(thread)) {
- 	list_insert (e, &(thread->sema_elem));
-	return;
-      }
+      for (e = list_begin (list); e != list_end (list);
+	   e = list_next (e))
+	{
+	  struct thread *t = list_entry (e, struct thread, sema_elem);
+	  if (get_thread_priority(t) < get_thread_priority(thread)) {
+	    list_insert (e, &(thread->sema_elem));
+	    return;
+	  }
+	}
     }
-
-  list_push_back (list, &thread->sema_elem);
+  else
+    list_push_back (list, &thread->sema_elem);
 }
 
 /* Down or "P" operation on a semaphore.  Waits for SEMA's value

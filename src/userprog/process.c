@@ -18,10 +18,11 @@
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 #include "threads/malloc.h"
+#include "threads/synch.h"
  
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
-
+struct semaphore before_death;
 /* Starts a new thread running a user program loaded from
    FILENAME.  The new thread may be scheduled (and may even exit)
    before process_execute() returns.  Returns the new process's
@@ -39,6 +40,7 @@ process_execute (const char *file_name)
     return TID_ERROR;
   strlcpy (fn_copy, file_name, PGSIZE);
 
+  sema_init (&load_sema, 0);
   /* Create a new thread to execute FILE_NAME. */
   tid = thread_create (file_name, PRI_DEFAULT, start_process, fn_copy);
   if (tid == TID_ERROR)
@@ -53,18 +55,18 @@ start_process (void *file_name_)
 {
   char *file_name = file_name_;
   struct intr_frame if_;
-  bool success;
 
   /* Initialize interrupt frame and load executable. */
   memset (&if_, 0, sizeof if_);
   if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
-  success = load (file_name, &if_.eip, &if_.esp);
+  load_success = load (file_name, &if_.eip, &if_.esp);
 
+  sema_up (&load_sema);
   /* If load failed, quit. */
   palloc_free_page (file_name);
-  if (!success) 
+  if (!load_success) 
     thread_exit ();
 
   /* Start the user process by simulating a return from an
@@ -89,6 +91,7 @@ start_process (void *file_name_)
 int
 process_wait (tid_t child_tid) 
 {
+  int status;
   struct list_elem *e;
 
   for (e = list_begin (&all_list); e != list_end (&all_list);
@@ -97,8 +100,11 @@ process_wait (tid_t child_tid)
       struct thread *t = list_entry (e, struct thread, allelem);
       if (t->tid == child_tid)
       	{
-      	  sema_down (&t->alive);
-      	  return 0;
+	  sema_down (&t->one);
+	  status = child_status;
+	  sema_up (&t->two);
+	  sema_down (&t->one);
+	  return status;
       	}
     } 
 
@@ -129,8 +135,9 @@ process_exit (void)
       pagedir_destroy (pd);
     }
 #ifdef USERPROG
-  sema_up (&cur->alive);
-#endif  
+  sema_up (&cur->one);
+  sema_down (&cur->two);
+#endif
 }
 
 /* Sets up the CPU for running user code in the current
@@ -320,7 +327,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
         }
     }
 
-  int argc = 1, num, argnum; char **argv; 
+  int argc = 1, num, argnum;
   char *arg;
   char *sep = " ";
   uint32_t addr[100];
