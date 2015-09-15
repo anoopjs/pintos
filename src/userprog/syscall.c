@@ -26,6 +26,9 @@ void handle_sys_close (struct intr_frame *);
 void handle_sys_filesize (struct intr_frame *);
 void handle_sys_exec (struct intr_frame *);
 void handle_sys_wait (struct intr_frame *);
+void handle_sys_seek (struct intr_frame *);
+void handle_sys_tell (struct intr_frame *);
+void handle_sys_remove (struct intr_frame *);
 static void syscall_handler (struct intr_frame *);
 
 
@@ -40,12 +43,17 @@ struct file_descriptor
    Returns the byte value if successful, -1 if a segfault
    occurred. */
 static int
-get_user (const uint8_t *uaddr)
+get_user (struct intr_frame *f, const uint8_t *uaddr)
 {
   int result;
-  asm ("movl $1f, %0; movzbl %1, %0; 1:"
-       : "=&a" (result) : "m" (*uaddr));
-  return result;
+
+  if ((uint32_t) uaddr <= (uint32_t) PHYS_BASE)
+    {
+      asm ("movl $1f, %0; movzbl %1, %0; 1:"
+	   : "=&a" (result) : "m" (*uaddr));
+      return result;
+    }
+  handle_sys_exit (f, -1);
 }
  
 /* Writes BYTE to user address UDST.
@@ -93,12 +101,12 @@ handle_sys_exit (struct intr_frame *f, int status)
   searcher++;
   for (ofs = 0; 
        ofs < 4 
-	 && get_user ((void *)searcher + ofs) == 0; 
+	 && get_user (f, (void *)searcher + ofs) == 0; 
        ofs++) ;
   buffer = malloc (100 * sizeof (char));
   for (i = 0; i < 100; i++)
     {
-      buffer[i] = get_user ((uint8_t *) 
+      buffer[i] = get_user (f, (uint8_t *) 
 			    (ofs + i + (uint32_t) searcher));
       if (buffer[i] == '\0')
 	break;
@@ -127,15 +135,18 @@ handle_sys_write (struct intr_frame *f)
 
   struct file *file = NULL;
 
+  if (ARG1 + ARG2 > PHYS_BASE)
+    handle_sys_exit (f, -1);
+
   buffer = malloc (ARG2);
   for (i = 0; i < (int) ARG2; i++)
     {
-      buffer[i] = get_user ((uint8_t *)(ARG1 + i));
+      buffer[i] = get_user (f, (uint8_t *)(ARG1 + i));
     }
 
   if (ARG0 == 1)
     {
-      putbuf (buffer, ARG2);
+      putbuf ((char *) buffer, ARG2);
       f->eax = ARG2;
     }
   else if (ARG0 == 0)
@@ -309,6 +320,8 @@ handle_sys_read (struct intr_frame *f)
   int i;
   struct file *file = NULL;
 
+  if (buffer + size > PHYS_BASE)
+    handle_sys_exit (f, -1);
   char *buffer_temp = malloc (size);
 
   file = get_file_from_handle (fd);
@@ -361,7 +374,7 @@ handle_sys_exec (struct intr_frame *f)
   cmd_line = malloc (100);
   for (i = 0; i < 100; i++)
     {
-      cmd_line[i] = get_user ((uint8_t *)(ARG0 + i));
+      cmd_line[i] = get_user (f, (uint8_t *)(ARG0 + i));
       if (cmd_line[i] == '\0')
 	break;
     }
@@ -388,7 +401,6 @@ void
 handle_sys_seek (struct intr_frame *f)
 {
   uint32_t handle, position;
-  tid_t child_tid;
   handle = *(uint32_t *) (f->esp + (sizeof (uint32_t)));
   position  = *(uint32_t *) (f->esp + (sizeof (uint32_t)) * 2);
 
@@ -397,13 +409,47 @@ handle_sys_seek (struct intr_frame *f)
     f->eax = -1;
   else
     file_seek (file, position);
-    
-  f->eax = process_wait (child_tid);
+}
+
+void
+handle_sys_tell (struct intr_frame *f)
+{
+  uint32_t handle;
+  handle = *(uint32_t *) (f->esp + (sizeof (uint32_t)));
+
+  struct file *file = get_file_from_handle (handle);
+  if (file == NULL)
+    f->eax = -1;
+  else
+    f->eax = file_tell (file);
+}
+
+void
+handle_sys_remove (struct intr_frame *f)
+{
+  uint32_t fname_ptr;
+  fname_ptr = *(uint32_t *) (f->esp + (sizeof (uint32_t)));
+
+  char *file_name;
+  int i;
+
+  file_name = malloc (100);
+  for (i = 0; i < 100; i++)
+    {
+      file_name[i] = get_user (f, (uint8_t *)(fname_ptr + i));
+      if (file_name[i] == '\0')
+	break;
+    }
+
+  f->eax = filesys_remove (file_name);
 }
 
 static void
 syscall_handler (struct intr_frame *f) 
 {
+  if ((uint32_t) f->esp > (uint32_t) PHYS_BASE || ((uint32_t) f->esp) < 0x08048000)
+    handle_sys_exit (f, -1);
+    //  printf("%x %x %x\n", f->esp, 0x08084000, PHYS_BASE);
   switch ( *(uint32_t *) f->esp)
     {
     case SYS_HALT : 
@@ -436,10 +482,17 @@ syscall_handler (struct intr_frame *f)
     case SYS_CLOSE :
       handle_sys_close (f);
       break;
+    case SYS_REMOVE :
+      handle_sys_remove (f);
+      break;
     case SYS_SEEK :
       handle_sys_seek (f);
       break;
+    case SYS_TELL :
+      handle_sys_tell (f);
+      break;
     default :
+      handle_sys_exit (f, -1);      
       break;
     }
 }
