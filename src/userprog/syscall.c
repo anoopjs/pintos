@@ -54,18 +54,24 @@ get_user (struct intr_frame *f, const uint8_t *uaddr)
       return result;
     }
   handle_sys_exit (f, -1);
+  return -1;
 }
  
 /* Writes BYTE to user address UDST.
    UDST must be below PHYS_BASE.
    Returns true if successful, false if a segfault occurred. */
 static bool
-put_user (uint8_t *udst, uint8_t byte)
+put_user (struct intr_frame *f, uint8_t *udst, uint8_t byte)
 {
   int error_code;
-  asm ("movl $1f, %0; movb %b2, %1; 1:"
-       : "=&a" (error_code), "=m" (*udst) : "q" (byte));
-  return error_code != -1;
+  if ((uint32_t) udst <= (uint32_t) PHYS_BASE)
+    {
+      asm ("movl $1f, %0; movb %b2, %1; 1:"
+	   : "=&a" (error_code), "=m" (*udst) : "q" (byte));
+      return error_code != -1;
+    }
+  handle_sys_exit (f, -1);
+  return false;
 }
  
 char *read_string (uint32_t addr)
@@ -92,10 +98,27 @@ handle_sys_exit (struct intr_frame *f, int status)
 {
   uint32_t *searcher, ARG0;
   int ofs, i;
-  char *buffer, *exit_message;
+  char *buffer, *exit_message, *brkt;
   size_t exit_message_size;
-  
-  ARG0 = *(uint32_t *) (f->esp + (sizeof (uint32_t)));
+  struct list *list;
+  struct list_elem *e;
+  struct file_descriptor *cur, *prev = NULL;
+
+  if (status == NULL)
+    {
+      if (f->esp + (sizeof (uint32_t) * 2) > PHYS_BASE)
+	handle_sys_exit (f, -1);
+      ARG0 = *(uint32_t *) (f->esp + (sizeof (uint32_t)));
+    }
+  list = &(thread_current ()->file_descriptors);
+
+  for (e = list_begin (list); e != list_end (list);
+       prev = e, e = list_next (e))
+    {
+      cur = list_entry (e, struct file_descriptor, elem);
+      file_close (cur->file);
+      list_remove (&cur->elem);
+    }
 
   for (searcher = PHYS_BASE; *searcher != 0; --searcher) ;
   searcher++;
@@ -111,6 +134,7 @@ handle_sys_exit (struct intr_frame *f, int status)
       if (buffer[i] == '\0')
 	break;
     }
+  buffer = strtok_r (thread_current ()->name, " ", &brkt);
   exit_message_size = sizeof (char) * (strlen(buffer) + 15);
   exit_message = malloc (exit_message_size);
   if (status == (int) NULL)
@@ -118,6 +142,8 @@ handle_sys_exit (struct intr_frame *f, int status)
   snprintf (exit_message, exit_message_size,
   	    "%s: exit(%d)\n", buffer, status);
   putbuf (exit_message, strlen (exit_message));
+  //  free (buffer);
+  free (exit_message);
   f->eax = status;
   child_status = status;
   thread_exit ();
@@ -135,7 +161,7 @@ handle_sys_write (struct intr_frame *f)
 
   struct file *file = NULL;
 
-  if (ARG1 + ARG2 > PHYS_BASE)
+  if (ARG1 + ARG2 > (uint32_t) PHYS_BASE)
     handle_sys_exit (f, -1);
 
   buffer = malloc (ARG2);
@@ -281,6 +307,7 @@ handle_sys_close (struct intr_frame *f)
       file_desc = list_entry (e, struct file_descriptor, elem);
       if (file_desc->fd == (int) ARG0)
 	{
+	  file_close (file_desc->file);
 	  list_remove (&file_desc->elem);
 	  f->eax = true;
 	  return;
@@ -320,7 +347,7 @@ handle_sys_read (struct intr_frame *f)
   int i;
   struct file *file = NULL;
 
-  if (buffer + size > PHYS_BASE)
+  if (buffer + size > (uint32_t) PHYS_BASE)
     handle_sys_exit (f, -1);
   char *buffer_temp = malloc (size);
 
@@ -331,9 +358,10 @@ handle_sys_read (struct intr_frame *f)
   file_read (file, buffer_temp, size);
   for (i = 0; i < (int) size; i++)
     {
-      put_user ((void *) buffer + i, buffer_temp[i]);
+      put_user (f, (void *) buffer + i, buffer_temp[i]);
     }
 
+  free (buffer_temp);
   f->eax = size;
 }
 
@@ -368,6 +396,7 @@ handle_sys_exec (struct intr_frame *f)
   uint32_t ARG0;
   ARG0 = *(uint32_t *) (f->esp + (sizeof (uint32_t)));
   char *cmd_line;
+  struct list_elem *e;
   tid_t child_tid;
   int i;
 
@@ -380,7 +409,16 @@ handle_sys_exec (struct intr_frame *f)
     }
 
   child_tid = process_execute (cmd_line);
-  //  sema_down (&load_sema);
+
+  for (e = list_begin (&all_list); e != list_end (&all_list);
+       e = list_next (e))
+    {
+      struct thread *t = list_entry (e, struct thread, allelem);
+      if (t->tid == child_tid)
+	sema_down (&t->load);
+    } 
+
+  free (cmd_line);
   if (!load_success || child_tid == TID_ERROR)
     f->eax = -1;
   else
@@ -440,8 +478,8 @@ handle_sys_remove (struct intr_frame *f)
       if (file_name[i] == '\0')
 	break;
     }
-
   f->eax = filesys_remove (file_name);
+  free (file_name);
 }
 
 static void
@@ -449,7 +487,8 @@ syscall_handler (struct intr_frame *f)
 {
   if ((uint32_t) f->esp > (uint32_t) PHYS_BASE || ((uint32_t) f->esp) < 0x08048000)
     handle_sys_exit (f, -1);
-    //  printf("%x %x %x\n", f->esp, 0x08084000, PHYS_BASE);
+
+
   switch ( *(uint32_t *) f->esp)
     {
     case SYS_HALT : 

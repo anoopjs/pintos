@@ -208,6 +208,8 @@ timer_interrupt (struct intr_frame *args UNUSED)
           e = list_prev (e);
 	  thread_unblock (st->th);
 	}
+      else if (st->ticks_left < 0)
+	free (st);
       else
 	{
 	  st->ticks_left--;

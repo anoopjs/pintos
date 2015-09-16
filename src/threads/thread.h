@@ -106,6 +106,7 @@ struct thread
 
     struct semaphore one;
     struct semaphore two;
+    struct semaphore load;
     struct list file_descriptors;
     struct file *file;
 #ifdef USERPROG

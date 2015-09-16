@@ -63,7 +63,7 @@ start_process (void *file_name_)
   if_.eflags = FLAG_IF | FLAG_MBS;
   load_success = load (file_name, &if_.eip, &if_.esp);
 
-  //  sema_up (&load_sema);
+  sema_up (&thread_current ()->load);
   /* If load failed, quit. */
   palloc_free_page (file_name);
   if (!load_success) 
@@ -360,6 +360,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
     for (num = 0; argnum >= 0;)
       {
 	strlcpy (addr[num], args[argnum], strlen (args[argnum]) + 1);
+	free (args[argnum]);
 	--argnum; ++num;
 	if (argnum >= 0)
 	  addr[num] = addr[num - 1] - (strlen (args[argnum]) + 1);
@@ -399,6 +400,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
 
  done:
   /* We arrive here whether the load is successful or not. */
+
   return success;
 }
 

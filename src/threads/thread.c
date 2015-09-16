@@ -262,7 +262,7 @@ thread_create (const char *name, int priority,
 
   sema_init (&t->one, 0);
   sema_init (&t->two, 0);
-
+  sema_init (&t->load, 0);
   /* Add to run queue. */
   thread_unblock (t);
   return tid;
