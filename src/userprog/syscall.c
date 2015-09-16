@@ -31,7 +31,6 @@ void handle_sys_tell (struct intr_frame *);
 void handle_sys_remove (struct intr_frame *);
 static void syscall_handler (struct intr_frame *);
 
-
 struct file_descriptor
 {
   int fd;
@@ -102,7 +101,7 @@ handle_sys_exit (struct intr_frame *f, int status)
   size_t exit_message_size;
   struct list *list;
   struct list_elem *e;
-  struct file_descriptor *cur, *prev = NULL;
+  struct file_descriptor *cur;
 
   if (status == NULL)
     {
@@ -112,8 +111,7 @@ handle_sys_exit (struct intr_frame *f, int status)
     }
   list = &(thread_current ()->file_descriptors);
 
-  for (e = list_begin (list); e != list_end (list);
-       prev = e, e = list_next (e))
+  for (e = list_begin (list); e != list_end (list); e = list_next (e))
     {
       cur = list_entry (e, struct file_descriptor, elem);
       file_close (cur->file);
@@ -142,10 +140,10 @@ handle_sys_exit (struct intr_frame *f, int status)
   snprintf (exit_message, exit_message_size,
   	    "%s: exit(%d)\n", buffer, status);
   putbuf (exit_message, strlen (exit_message));
-  //  free (buffer);
+
   free (exit_message);
   f->eax = status;
-  child_status = status;
+  thread_current ()->exit_status = status;
   thread_exit ();
 }
 

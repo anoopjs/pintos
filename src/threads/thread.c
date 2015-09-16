@@ -100,7 +100,7 @@ thread_init (void)
   initial_thread = running_thread ();
   init_thread (initial_thread, "main", PRI_DEFAULT);
   initial_thread->status = THREAD_RUNNING;
-  list_init(&initial_thread->donate_list);
+  list_init (&initial_thread->donate_list);
   initial_thread->waiting_for_lock = NULL;
   initial_thread->waiting_for_semaphore = NULL;
   initial_thread->donated_by = NULL;

@@ -93,7 +93,6 @@ process_wait (tid_t child_tid)
 {
   int status;
   struct list_elem *e;
-  struct thread *cur = thread_current ();
   for (e = list_begin (&all_list); e != list_end (&all_list);
        e = list_next (e))
     {
@@ -101,7 +100,7 @@ process_wait (tid_t child_tid)
       if (t->tid == child_tid)
       	{
 	  sema_down (&t->one);
-	  status = child_status;
+	  status = t->exit_status;
 	  sema_up (&t->two);
 	  sema_down (&t->one);
 	  return status;

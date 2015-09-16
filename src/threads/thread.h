@@ -89,6 +89,7 @@ struct thread
     char name[20];                      /* Name (for debugging purposes). */
     uint8_t *stack;                     /* Saved stack pointer. */
     int priority;                       /* Priority. */
+    int exit_status;
     int donated_priority;
     struct thread * donated_by;
     struct lock * waiting_for_lock;
