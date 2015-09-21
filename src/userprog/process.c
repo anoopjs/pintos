@@ -120,7 +120,7 @@ process_exit (void)
 #ifdef USERPROG
   sema_up (&cur->one);
   sema_down (&cur->two);
-  file_allow_write (cur->file);
+  file_close (cur->file);
 #endif
   
   /* Destroy the current process's page directory and switch back
