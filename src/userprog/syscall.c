@@ -110,12 +110,14 @@ handle_sys_exit (struct intr_frame *f, int status)
       ARG0 = *(uint32_t *) (f->esp + (sizeof (uint32_t)));
     }
   list = &(thread_current ()->file_descriptors);
-
-  for (e = list_begin (list); e != list_end (list); e = list_next (e))
+  
+  for (e = list_begin (list); e != list_end (list);)
     {
       cur = list_entry (e, struct file_descriptor, elem);
+      e = list_next (e);
       file_close (cur->file);
       list_remove (&cur->elem);
+      free (cur);
     }
 
   for (searcher = PHYS_BASE; *searcher != 0; --searcher) ;
@@ -124,6 +126,8 @@ handle_sys_exit (struct intr_frame *f, int status)
        ofs < 4 
 	 && get_user (f, (void *)searcher + ofs) == 0; 
        ofs++) ;
+  
+  free (buffer);
   buffer = malloc (100 * sizeof (char));
   for (i = 0; i < 100; i++)
     {
@@ -240,9 +244,8 @@ handle_sys_open (struct intr_frame *f)
   struct file *file;
   uint32_t ARG0;
   char *file_name;
-  struct file_descriptor * file_descriptor, *cur, *prev;
+  struct file_descriptor * file_descriptor, *last;
   struct list *list;
-  struct list_elem *e;
   ARG0 = *(uint32_t *) (f->esp + (sizeof (uint32_t)));
 
   if (ARG0 == 0)
@@ -257,28 +260,21 @@ handle_sys_open (struct intr_frame *f)
       file_descriptor = malloc (sizeof (struct file_descriptor));
       file_descriptor->file = file;
       if (list_empty (&thread_current ()->file_descriptors))
-	{
-	  file_descriptor->fd = 2;
-	  list_push_back (&thread_current ()->file_descriptors,
-			  &file_descriptor->elem);
-	  f->eax = 2;
-	}
+      	{
+      	  file_descriptor->fd = 2;
+      	  list_push_back (&thread_current ()->file_descriptors,
+      			  &file_descriptor->elem);
+      	  f->eax = 2;
+      	}
       else
-	{
-	  list = &(thread_current ()->file_descriptors);
-	  for (e = list_begin (list); e != list_end (list);
-	       e = list_next (e))
-	    {
-	      cur = list_entry (e, struct file_descriptor, elem);
-	      if (e != list_begin (list) && cur->fd != prev->fd + 1)
-		{ 
-		  file_descriptor->fd = prev->fd + 1;
-		  list_insert (e, &file_descriptor->elem);
-		  f->eax = file_descriptor->fd;
-		}
-	      prev = cur;
-	    }
-	}
+      	{
+      	  list = &(thread_current ()->file_descriptors);
+	  last = list_entry (list_rbegin (list), struct file_descriptor, elem);
+	  file_descriptor->fd = last->fd + 1;
+	  list_push_back (list,
+      			  &file_descriptor->elem);
+	  f->eax = file_descriptor->fd;
+      	}
     }
   else
     f->eax = -1;
