@@ -1,0 +1,235 @@
+		     +--------------------------+
+       	       	     |		CS 140		|
+		     | PROJECT 2: USER PROGRAMS	|
+		     | 	   DESIGN DOCUMENT     	|
+		     +--------------------------+
+
+---- GROUP ----
+
+>> Fill in the names and email addresses of your group members.
+
+Anoop J S <js_anoop@yahoo.co.in>
+
+---- PRELIMINARIES ----
+
+>> If you have any preliminary comments on your submission, notes for the
+>> TAs, or extra credit, please give them here.
+
+>> Please cite any offline or online sources you consulted while
+>> preparing your submission, other than the Pintos documentation, course
+>> text, lecture notes, and course staff.
+
+			   ARGUMENT PASSING
+			   ================
+
+---- DATA STRUCTURES ----
+
+>> A1: Copy here the declaration of each new or changed `struct' or
+>> `struct' member, global or static variable, `typedef', or
+>> enumeration.  Identify the purpose of each in 25 words or less.
+
+   No changes in struct were made or new structs were created. Also no
+   new global variables were introduced for argument passing.
+
+---- ALGORITHMS ----
+
+>> A2: Briefly describe how you implemented argument parsing.  How do
+>> you arrange for the elements of argv[] to be in the right order?
+>> How do you avoid overflowing the stack page?
+
+   Argument passing was implemented in load funciton after the binary
+   ELF file has been successfully loaded. Inititially all the aguments
+   including the program name will be saved to another dynamically located
+   memory locations, and then they will be saved to the stack one by one
+   in the reverse order. During this time, the assigned address will
+   saved in another array. After the strings have been copied, the saved
+   pointers will be saved to the stack. And the beginning of this saved
+   array of pointers will be again saved in the stack as the pointer argv.
+   
+   We disallow overflowing by checking the size of the arguments passed.
+
+---- RATIONALE ----
+
+>> A3: Why does Pintos implement strtok_r() but not strtok()?
+   
+   Because strtok is a function that depends on its previous state. In each
+   subsequent call of strtok, it returns result different than it's previous
+   result. That is it depends on it's saved state. Thus in a multithreaded
+   enviroment, other threads could modify the state variable used by strtok.
+   Thus inorder to execute safely in an environment with multiple threads,
+   strtok_r uses an extra argument saveptr to save its state. Thus strtok_r
+   is implemented instead of strtok in pintos because strtok is not thread safe.
+
+>> A4: In Pintos, the kernel separates commands into a executable name
+>> and arguments.  In Unix-like systems, the shell does this
+>> separation.  Identify at least two advantages of the Unix approach.
+   
+   In the Unix environment, if the program name specified in the shell is not 
+   proper, or if such a program does not exist, the shell can warn the user
+   without having to resort to the kernerl to figure out that such a program does
+   not exist.
+
+   In the Unix environment, the user will be able to pipe output of one program
+   as the input of another program using the shell. Such actions cannot be performed
+   when the arguments are parsed by the kernel.
+   
+
+			     SYSTEM CALLS
+			     ============
+
+---- DATA STRUCTURES ----
+
+>> B1: Copy here the declaration of each new or changed `struct' or
+>> `struct' member, global or static variable, `typedef', or
+>> enumeration.  Identify the purpose of each in 25 words or less.
+
+-- struct thread
+   int exit_status // exit_status of a process that to be passed to waiting parent.
+   struct semaphore one; // semaphore used to make parent wait for child.
+   struct semaphore two; // semaphroe used to denote child has finished execution.	
+   struct semaphore load; // semaphore to denote loading executable has finished.
+   struct list file_descriptors; // list that saves data regarding open files.
+   struct file *file; // file that the thread has loaded instructions from.
+
+-- struct file_descriptor
+   int fd; // file descriptor number.
+   struct file *file; // file pointer.
+   struct last_elem elem; // list elem member.
+
+>> B2: Describe how file descriptors are associated with open files.
+>> Are file descriptors unique within the entire OS or just within a
+>> single process?
+
+   When a system call for open is received, the file is opened and the returned
+   file pointer along with a file descriptor number is saved as a struct , and 
+   saved in a list within the struct thread data structure of running thread.
+   Hence in this implementation, file descritpors are unique within a single process.
+ 
+---- ALGORITHMS ----
+
+>> B3: Describe your code for reading and writing user data from the
+>> kernel.
+
+   Reading and writing from the kernel makes use of the get_user and put_user
+   functions provided in the pintos documentation page. Extra modification that checks
+   the bounds of the address passed as argument has been made. In the case of read 
+   we check if it is a read for standard input or for a file. If it is for stdin, we
+   use input_getc or if for a file, we traverse the file descriptors list and use
+   the file pointer to write data read from the kernel. Writing is done similarly,
+   if for standard output we make use of putbuf to output data to stdout.
+
+>> B4: Suppose a system call causes a full page (4,096 bytes) of data
+>> to be copied from user space into the kernel.  What is the least
+>> and the greatest possible number of inspections of the page table
+>> (e.g. calls to pagedir_get_page()) that might result?  What about
+>> for a system call that only copies 2 bytes of data?  Is there room
+>> for improvement in these numbers, and how much?
+
+
+   In my implementation pagedir_get_page is not used for pointer validation.
+   Thus least number of calls to pagedir_get_page could be one, if single chunk
+   of 4096 bytes was returned, or maximum number of calls would be 4096, if 4096 
+   chunks of memory each with 1 byte is returned.
+ 
+>> B5: Briefly describe your implementation of the "wait" system call
+>> and how it interacts with process termination.
+
+   When a wait system call is called, the parent iterates the all_list
+   and obtains a pointer to child thread. It waits for the child to finish.
+   The child after finishing its execution waits for the parent to copy its 
+   return status. After that parent allows the child to finish. All this is
+   done using semaphores stored within the child process's thread data structure. 
+  
+>> B6: Any access to user program memory at a user-specified address
+>> can fail due to a bad pointer value.  Such accesses must cause the
+>> process to be terminated.  System calls are fraught with such
+>> accesses, e.g. a "write" system call requires reading the system
+>> call number from the user stack, then each of the call's three
+>> arguments, then an arbitrary amount of user memory, and any of
+>> these can fail at any point.  This poses a design and
+>> error-handling problem: how do you best avoid obscuring the primary
+>> function of code in a morass of error-handling?  Furthermore, when
+>> an error is detected, how do you ensure that all temporarily
+>> allocated resources (locks, buffers, etc.) are freed?  In a few
+>> paragraphs, describe the strategy or strategies you adopted for
+>> managing these issues.  Give an example.
+
+   In the case when userprog tries to write or read to or from an invalid address
+   that is in the kernel space, the modified get_user and put_user function, validates,
+   and invokes the handler for system exit. In other cases, like deferencing an invalid
+   pointer, the page_fault handler will be invoked. In page_fault function, we detect
+   if it is a user page_fault. If it is so, we invoke the handler for system exit. The system
+   exit handler will make sure that all the locks and buffers are freed.
+
+---- SYNCHRONIZATION ----
+
+>> B7: The "exec" system call returns -1 if loading the new executable
+>> fails, so it cannot return before the new executable has completed
+>> loading.  How does your code ensure this?  How is the load
+>> success/failure status passed back to the thread that calls "exec"?
+
+   We make use of the newly introduced semaphore load in thread data structure.
+   After process_execute has been called, the parent waits for the semaphore.
+   The child processe after successfully loading instructions, up's the semaphore.
+   Thus the parent process can successfully determine if the load was successful.
+
+>> B8: Consider parent process P with child process C.  How do you
+>> ensure proper synchronization and avoid race conditions when P
+>> calls wait(C) before C exits?  After C exits?  How do you ensure
+>> that all resources are freed in each case?  How about when P
+>> terminates without waiting, before C exits?  After C exits?  Are
+>> there any special cases?
+
+   Whether P calls before or after C exists, the implementation works, as in
+   process_wait, when parent iterates through all_list, it obtains the thread
+   struct of child, and it can obtain the exit_status of child C that was finished.
+   Otherwise if C is still executing, the parent process waits for C to finish using
+   the semaphores stored within C's struct thread.
+
+---- RATIONALE ----
+
+>> B9: Why did you choose to implement access to user memory from the
+>> kernel in the way that you did?
+
+   Because out of the two options said in the design documentation, the choice I
+   implemented seemed more pragmatic and faster out of the two. Also the documentation
+   says that the option I chose was the one Linus kernel is using.
+
+>> B10: What advantages or disadvantages can you see to your design
+>> for file descriptors?
+
+   Advantages
+   The implementation is straight forward and there is not limit to the number of open
+   file descriptors that can be saved. 
+
+   Disadvatages
+   Accessing file descriptor takes O(n) time. 
+
+>> B11: The default tid_t to pid_t mapping is the identity mapping.
+>> If you changed it, what advantages are there to your approach?
+
+   I didn't change it.
+
+			   SURVEY QUESTIONS
+			   ================
+
+Answering these questions is optional, but it will help us improve the
+course in future quarters.  Feel free to tell us anything you
+want--these questions are just to spur your thoughts.  You may also
+choose to respond anonymously in the course evaluations at the end of
+the quarter.
+
+>> In your opinion, was this assignment, or any one of the three problems
+>> in it, too easy or too hard?  Did it take too long or too little time?
+
+>> Did you find that working on a particular part of the assignment gave
+>> you greater insight into some aspect of OS design?
+
+>> Is there some particular fact or hint we should give students in
+>> future quarters to help them solve the problems?  Conversely, did you
+>> find any of our guidance to be misleading?
+
+>> Do you have any suggestions for the TAs to more effectively assist
+>> students, either for future quarters or the remaining projects?
+
+>> Any other comments?
