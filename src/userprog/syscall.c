@@ -14,6 +14,7 @@
 #include "threads/malloc.h"
 #include <string.h>
 #include "devices/shutdown.h"
+#include "devices/input.h"
 
 char *read_string (uint32_t);
 struct file *get_file_from_handle (int);
@@ -127,7 +128,6 @@ handle_sys_exit (struct intr_frame *f, int status)
 	 && get_user (f, (void *)searcher + ofs) == 0; 
        ofs++) ;
   
-  free (buffer);
   buffer = malloc (100 * sizeof (char));
   for (i = 0; i < 100; i++)
     {
@@ -136,6 +136,7 @@ handle_sys_exit (struct intr_frame *f, int status)
       if (buffer[i] == '\0')
 	break;
     }
+  free (buffer);
   buffer = strtok_r (thread_current ()->name, " ", &brkt);
   exit_message_size = sizeof (char) * (strlen(buffer) + 15);
   exit_message = malloc (exit_message_size);
@@ -157,6 +158,7 @@ handle_sys_write (struct intr_frame *f)
   uint32_t ARG0, ARG1, ARG2;
   uint8_t *buffer;
   int i;
+
   ARG0 = *(uint32_t *) (f->esp + (sizeof (uint32_t)));
   ARG1 = *(uint32_t *) (f->esp + (sizeof (uint32_t) * 2));
   ARG2 = *(uint32_t *) (f->esp + (sizeof (uint32_t) * 3));
@@ -346,10 +348,17 @@ handle_sys_read (struct intr_frame *f)
   char *buffer_temp = malloc (size);
 
   file = get_file_from_handle (fd);
-  if (file == NULL)
+  if (file == NULL && fd != 0)
     handle_sys_exit (f, -1);
 
-  file_read (file, buffer_temp, size);
+  if (fd == 0)
+    {
+      for (i = 0; i < (int) size; i++)
+	put_user (f, (void *) buffer + i, input_getc ());
+    }
+  else
+    file_read (file, buffer_temp, size);
+  
   for (i = 0; i < (int) size; i++)
     {
       put_user (f, (void *) buffer + i, buffer_temp[i]);
