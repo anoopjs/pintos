@@ -27,6 +27,7 @@
 #include "userprog/exception.h"
 #include "userprog/gdt.h"
 #include "userprog/syscall.h"
+#include "vm/frame.h"
 #include "userprog/tss.h"
 #else
 #include "tests/threads/tests.h"
@@ -98,6 +99,7 @@ main (void)
   palloc_init (user_page_limit);
   malloc_init ();
   paging_init ();
+  frame_init ();
 
   /* Segmentation. */
 #ifdef USERPROG
