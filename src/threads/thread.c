@@ -14,6 +14,7 @@
 #include "devices/timer.h"
 #ifdef USERPROG
 #include "userprog/process.h"
+#include "vm/page.h"
 #endif
 
 /* Random value for struct thread's `magic' member.
@@ -263,6 +264,8 @@ thread_create (const char *name, int priority,
   sema_init (&t->one, 0);
   sema_init (&t->two, 0);
   sema_init (&t->load, 0);
+
+  hash_init (&t->suppl_page_table, suppl_page_hash, suppl_page_less, NULL);
   /* Add to run queue. */
   thread_unblock (t);
   return tid;

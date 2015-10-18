@@ -9,8 +9,6 @@
 #include "userprog/pagedir.h"
 #include "userprog/tss.h"
 #include "filesys/directory.h"
-#include "filesys/file.h"
-#include "filesys/filesys.h"
 #include "threads/flags.h"
 #include "threads/init.h"
 #include "threads/interrupt.h"
@@ -23,6 +21,11 @@
  
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
+
+static bool
+load_segment (struct file *file, off_t ofs, uint8_t *upage,
+              uint32_t read_bytes, uint32_t zero_bytes, bool writable);
+
 /* Starts a new thread running a user program loaded from
    FILENAME.  The new thread may be scheduled (and may even exit)
    before process_execute() returns.  Returns the new process's
@@ -222,9 +225,6 @@ struct Elf32_Phdr
 
 static bool setup_stack (void **esp);
 static bool validate_segment (const struct Elf32_Phdr *, struct file *);
-static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
-                          uint32_t read_bytes, uint32_t zero_bytes,
-                          bool writable);
 
 /* Loads an ELF executable from FILE_NAME into the current thread.
    Stores the executable's entry point into *EIP
@@ -475,6 +475,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
   ASSERT (ofs % PGSIZE == 0);
 
   file_seek (file, ofs);
+  off_t cur_ofs = ofs;
   while (read_bytes > 0 || zero_bytes > 0) 
     {
       /* Calculate how to fill this page.
@@ -483,32 +484,49 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
       size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
       size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
-      /* Get a page of memory. */
-      uint8_t *kpage = frame_get_page (PAL_USER);
-      if (kpage == NULL)
-        return false;
-
-      /* Load this page. */
-      if (file_read (file, kpage, page_read_bytes) != (int) page_read_bytes)
-        {
-          frame_free_page (kpage);
-          return false; 
-        }
-      memset (kpage + page_read_bytes, 0, page_zero_bytes);
-
-      /* Add the page to the process's address space. */
-      if (!install_page (upage, kpage, writable)) 
-        {
-          frame_free_page (kpage);
-          return false; 
-        }
+      struct suppl_page *lazy_page = malloc (sizeof (struct suppl_page));
+      lazy_page->addr = (void *)upage;
+      lazy_page->file = file;
+      lazy_page->file_page = cur_ofs;
+      lazy_page->read_bytes = read_bytes;
+      lazy_page->zero_bytes = zero_bytes;
+      lazy_page->writable = writable;
+      //printf("--> %x\n", upage);
+      hash_insert (&thread_current()->suppl_page_table,
+		   &lazy_page->hash_elem);
 
       /* Advance. */
       read_bytes -= page_read_bytes;
       zero_bytes -= page_zero_bytes;
       upage += PGSIZE;
+      cur_ofs += page_read_bytes;
     }
   return true;
+}
+
+bool force_load_page (struct suppl_page *s)
+{
+  /* Get a page of memory. */
+  uint8_t *kpage = frame_get_page (PAL_USER);
+  if (kpage == NULL)
+    return false;
+
+  /* Load this page. */
+  if (file_read_at (s->file, kpage, s->read_bytes, s->file_page) 
+      != (int) s->read_bytes)
+    {
+      frame_free_page (kpage);
+      return false; 
+    }
+  memset (kpage + s->read_bytes, 0, s->zero_bytes);
+
+  /* Add the page to the process's address space. */
+  if (!install_page (s->addr, kpage, s->writable)) 
+    {
+      frame_free_page (kpage);
+      return false; 
+    }
+
 }
 
 /* Create a minimal stack by mapping a zeroed page at the top of

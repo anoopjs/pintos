@@ -210,14 +210,15 @@ handle_sys_create (struct intr_frame *f)
       return;
     }
 
-  file_name = malloc (sizeof (char) * 100);
+  file_name = malloc (sizeof (char) * 101);
   for (i = 0; i < 100; i++)
     {
       file_name[i] = *(char *)(ARG1 + i);
       if (file_name[i] == '\0')
       	break;
     }
-  if (strlen (file_name) == 0)
+  file_name[101] = '\0';
+  if (strlen (file_name) == 0 || strlen (file_name) == 100)
     f->eax = false;
   else
     {
@@ -358,12 +359,11 @@ handle_sys_read (struct intr_frame *f)
     }
   else
     file_read (file, buffer_temp, size);
-  
+
   for (i = 0; i < (int) size; i++)
     {
       put_user (f, (void *) buffer + i, buffer_temp[i]);
     }
-
   free (buffer_temp);
   f->eax = size;
 }
