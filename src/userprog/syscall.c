@@ -9,6 +9,7 @@
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 #include "threads/init.h"
+#include "threads/palloc.h"
 #include "filesys/off_t.h"
 #include "filesys/inode.h"
 #include "threads/malloc.h"
@@ -90,6 +91,28 @@ char *read_string (uint32_t addr)
     }
   return file_name;
 }
+
+
+struct mmap_region *
+check_mmap_region (void *fault_addr)
+{
+  struct list *list = &thread_current ()->mmap_regions;
+  struct list_elem *e;
+  struct mmap_region *m;
+
+  for (e = list_begin (list); e != list_end (list);
+       e = list_next (e))
+    {
+      m = list_entry (e, struct mmap_region, elem);
+      if (fault_addr >= m->ptr && fault_addr <= (m->ptr + file_length(m->file))
+	  && file_length (m->file) != 0)
+	{
+	  return m;
+	}
+    }
+  return NULL;
+}
+
 void
 syscall_init (void) 
 {
@@ -106,6 +129,7 @@ handle_sys_exit (struct intr_frame *f, int status)
   struct list *list;
   struct list_elem *e;
   struct file_descriptor *cur;
+  struct mmap_region *m;
 
   if (status == NULL)
     {
@@ -113,8 +137,18 @@ handle_sys_exit (struct intr_frame *f, int status)
 	handle_sys_exit (f, -1);
       ARG0 = *(uint32_t *) (f->esp + (sizeof (uint32_t)));
     }
+
+  list = &thread_current ()->mmap_regions;
+  for (e = list_begin (list); e != list_end (list);)
+    {
+      m = list_entry (e, struct mmap_region, elem);
+      e = list_next (e);
+      write_back_mmap (m);
+      list_remove (&m->elem);
+      free (m);
+    }
+
   list = &(thread_current ()->file_descriptors);
-  
   for (e = list_begin (list); e != list_end (list);)
     {
       cur = list_entry (e, struct file_descriptor, elem);
@@ -347,10 +381,10 @@ get_file_from_handle (int fd)
       if (file_desc->fd == (int) fd)
 	{
 	  file = file_desc->file;
-	  break;
+	  return file;
 	}
     }
-  return file;
+  return NULL;
 }
 
 void
@@ -516,6 +550,25 @@ handle_sys_mmap (struct intr_frame *f)
   data_ptr = *(uint32_t *) (f->esp + 2 * (sizeof (uint32_t)));
   file = get_file_from_handle (handle);
 
+
+  //  printf("-- %x\n", data_ptr);
+  
+  struct hash_elem *e;
+  struct suppl_page *s = malloc (sizeof (struct suppl_page));
+  s->addr = (void *) pg_round_down(data_ptr);
+  e = hash_find (&thread_current()->suppl_page_table,
+		 &s->hash_elem);
+
+  if (!file || !data_ptr || data_ptr <= 0x08048000
+      || check_mmap_region (data_ptr) 
+      || check_mmap_region (data_ptr + file_length (file))
+      || data_ptr != pg_round_down (data_ptr)
+      || data_ptr >= pg_round_down (f->esp)
+      || e)
+    {
+      f->eax = -1;
+      return;
+    }
   m = malloc (sizeof (struct mmap_region));
   m->ptr = data_ptr;
   m->file = file;
@@ -537,6 +590,35 @@ handle_sys_mmap (struct intr_frame *f)
 }
 
 void
+write_back_mmap (struct mmap_region *m)
+{
+  struct file *f = m->file;
+  uint32_t file_size = file_length (f);
+  off_t cur;
+  struct hash_elem *e;
+
+  for (cur = 0; cur <= file_size; cur += PGSIZE)
+    {
+      struct suppl_page *s = malloc (sizeof (struct suppl_page));
+      s->addr = (void *) m->ptr + cur;
+      e = hash_find (&thread_current()->suppl_page_table,
+		     &s->hash_elem);
+
+      if (e)
+	{
+	  struct suppl_page *page = hash_entry (e, struct suppl_page, hash_elem);
+	  if (pagedir_is_dirty (thread_current ()->pagedir, page->addr))
+	    if (file_write_at (page->file, page->addr, page->read_bytes, cur) 
+		!= (int) page->read_bytes)
+	      {
+		handle_sys_exit (f, -1);
+	      }
+	}
+      
+    }
+}
+
+void
 handle_sys_munmap (struct intr_frame *f)
 {
   uint32_t mmap_id = *(uint32_t *) (f->esp + (sizeof (uint32_t)));
@@ -552,12 +634,14 @@ handle_sys_munmap (struct intr_frame *f)
       m = list_entry (e, struct mmap_region, elem);
       if (m->mmap_id == (int) mmap_id)
 	{
+	  write_back_mmap (m);
 	  list_remove (&m->elem);
 	  return;
 	}
     }
   handle_sys_exit (f, -1);
 }
+
 static void
 syscall_handler (struct intr_frame *f) 
 {

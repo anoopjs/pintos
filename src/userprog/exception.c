@@ -113,25 +113,6 @@ kill (struct intr_frame *f)
     }
 }
 
-struct mmap_region *
-check_mmap_region (void *fault_addr)
-{
-  struct list *list = &thread_current ()->mmap_regions;
-  struct list_elem *e;
-  struct mmap_region *m;
-
-  for (e = list_begin (list); e != list_end (list);
-       e = list_next (e))
-    {
-      m = list_entry (e, struct mmap_region, elem);
-      if (fault_addr >= m->ptr && fault_addr <= (m->ptr + file_length(m->file)))
-	{
-	  return m;
-	}
-    }
-  return NULL;
-}
-
 /* Page fault handler.  This is a skeleton that must be filled in
    to implement virtual memory.  Some solutions to project 2 may
    also require modifying this code.
@@ -184,7 +165,7 @@ page_fault (struct intr_frame *f)
 	  s->addr = (void *) pg_round_down(fault_addr);
 	  e = hash_find (&thread_current()->suppl_page_table,
 			 &s->hash_elem);
-	  if (e != NULL)
+	  if (e)
 	    {
 	      struct suppl_page *page = hash_entry (e, struct suppl_page, hash_elem);
 	      if ((write && page->writable) || !write)
