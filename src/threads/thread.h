@@ -7,6 +7,7 @@
 #include "threads/fixed-point.h"
 #include "threads/synch.h"
 #include <hash.h>
+#include "vm/page.h"
 /* States in a thread's life cycle. */
 enum thread_status
   {
@@ -115,6 +116,7 @@ struct thread
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /* Page directory. */
     struct hash suppl_page_table;
+    struct list mmap_regions;
 #endif
 
     /* Owned by thread.c. */

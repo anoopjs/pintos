@@ -7,6 +7,7 @@
 #include "filesys/filesys.h"
 #include "vm/page.h"
 
+bool install_page (void *, void *, bool);
 tid_t process_execute (const char *file_name);
 int process_wait (tid_t);
 void process_exit (void);

@@ -405,8 +405,6 @@ load (const char *file_name, void (**eip) (void), void **esp)
 
 /* load() helpers. */
 
-static bool install_page (void *upage, void *kpage, bool writable);
-
 /* Checks whether PHDR describes a valid, loadable segment in
    FILE and returns true if so, false otherwise. */
 static bool
@@ -488,10 +486,11 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
       lazy_page->addr = (void *)upage;
       lazy_page->file = file;
       lazy_page->file_page = cur_ofs;
-      lazy_page->read_bytes = read_bytes;
-      lazy_page->zero_bytes = zero_bytes;
+      lazy_page->read_bytes = page_read_bytes;
+      lazy_page->zero_bytes = page_zero_bytes;
       lazy_page->writable = writable;
-      //printf("--> %x\n", upage);
+      lazy_page->page_type = segment_page;
+      //printf("--> %x %x\n", upage, cur_ofs);
       hash_insert (&thread_current()->suppl_page_table,
 		   &lazy_page->hash_elem);
 
@@ -502,31 +501,6 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
       cur_ofs += page_read_bytes;
     }
   return true;
-}
-
-bool force_load_page (struct suppl_page *s)
-{
-  /* Get a page of memory. */
-  uint8_t *kpage = frame_get_page (PAL_USER);
-  if (kpage == NULL)
-    return false;
-
-  /* Load this page. */
-  if (file_read_at (s->file, kpage, s->read_bytes, s->file_page) 
-      != (int) s->read_bytes)
-    {
-      frame_free_page (kpage);
-      return false; 
-    }
-  memset (kpage + s->read_bytes, 0, s->zero_bytes);
-
-  /* Add the page to the process's address space. */
-  if (!install_page (s->addr, kpage, s->writable)) 
-    {
-      frame_free_page (kpage);
-      return false; 
-    }
-
 }
 
 /* Create a minimal stack by mapping a zeroed page at the top of
@@ -558,7 +532,7 @@ setup_stack (void **esp)
    with palloc_get_page().
    Returns true on success, false if UPAGE is already mapped or
    if memory allocation fails. */
-static bool
+bool
 install_page (void *upage, void *kpage, bool writable)
 {
   struct thread *t = thread_current ();

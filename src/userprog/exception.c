@@ -1,6 +1,7 @@
 #include "userprog/exception.h"
 #include <inttypes.h>
 #include <stdio.h>
+#include <string.h>
 #include "userprog/gdt.h"
 #include "userprog/process.h"
 #include "threads/interrupt.h"
@@ -112,6 +113,25 @@ kill (struct intr_frame *f)
     }
 }
 
+struct mmap_region *
+check_mmap_region (void *fault_addr)
+{
+  struct list *list = &thread_current ()->mmap_regions;
+  struct list_elem *e;
+  struct mmap_region *m;
+
+  for (e = list_begin (list); e != list_end (list);
+       e = list_next (e))
+    {
+      m = list_entry (e, struct mmap_region, elem);
+      if (fault_addr >= m->ptr && fault_addr <= (m->ptr + file_length(m->file)))
+	{
+	  return m;
+	}
+    }
+  return NULL;
+}
+
 /* Page fault handler.  This is a skeleton that must be filled in
    to implement virtual memory.  Some solutions to project 2 may
    also require modifying this code.
@@ -130,6 +150,7 @@ page_fault (struct intr_frame *f)
   bool write;        /* True: access was write, false: access was read. */
   bool user;         /* True: access by user, false: access by kernel. */
   void *fault_addr;  /* Fault address. */
+  struct mmap_region * m;
 
   /* Obtain faulting address, the virtual address that was
      accessed to cause the fault.  It may point to code or to
@@ -152,26 +173,70 @@ page_fault (struct intr_frame *f)
   write = (f->error_code & PF_W) != 0;
   user = (f->error_code & PF_U) != 0;
 
-  if (user || (uint32_t) f->esp > (uint32_t) 0xc0000000
+  if (user || (uint32_t) f->esp > (uint32_t) PHYS_BASE
       || ((uint32_t) f->esp) < 0x08048000)
     {
-      struct hash_elem *e;
-      struct suppl_page *s = malloc (sizeof (struct suppl_page));
-      s->addr = (void *) pg_round_down(fault_addr);
-      e = hash_find (&thread_current()->suppl_page_table,
-		     &s->hash_elem);
-      //      printf("<-- %x\n", pg_round_down(fault_addr));
-      if (e != NULL)
+
+      if (fault_addr < PHYS_BASE && fault_addr > 0x08048000)
 	{
-	  struct suppl_page *page = hash_entry (e, struct suppl_page, hash_elem);
-	  force_load_page (page);
+	  struct hash_elem *e;
+	  struct suppl_page *s = malloc (sizeof (struct suppl_page));
+	  s->addr = (void *) pg_round_down(fault_addr);
+	  e = hash_find (&thread_current()->suppl_page_table,
+			 &s->hash_elem);
+	  if (e != NULL)
+	    {
+	      struct suppl_page *page = hash_entry (e, struct suppl_page, hash_elem);
+	      if ((write && page->writable) || !write)
+		force_load_page (page);
+	      else
+		handle_sys_exit (f, -1);
+	    }
+	  else
+	    {
+	      if ((m = check_mmap_region (fault_addr)) != NULL)
+		{
+		  struct suppl_page *stack_page = malloc (sizeof (struct suppl_page));
+		  stack_page->addr = (void *) pg_round_down(fault_addr);
+		  stack_page->writable = true;
+		  stack_page->page_type = mmap_page;
+		  stack_page->file = m->file;
+		  stack_page->file_page = (fault_addr - m->ptr);
+		  stack_page->read_bytes =
+		    ((file_length (m->file) - stack_page->file_page) > PGSIZE)
+		    ? PGSIZE : (file_length (m->file) - stack_page->file_page);
+		  stack_page->zero_bytes =
+		    PGSIZE - stack_page->read_bytes;
+		  hash_insert (&thread_current ()->suppl_page_table,
+		  	   &stack_page->hash_elem);
+		  
+		}
+	      else if (fault_addr > (f->esp - 4096))
+		{
+		  struct suppl_page *s_page = malloc (sizeof (struct suppl_page));
+		  s_page->addr = (void *) pg_round_down(fault_addr);
+		  s_page->writable = true;
+		  s_page->page_type = stack_page;
+		  hash_insert (&thread_current ()->suppl_page_table,
+			   &s_page->hash_elem);
+		}
+	      else
+		{
+		  handle_sys_exit (f, -1);
+		}
+	    }
 	}
       else
 	{
 	  handle_sys_exit (f, -1);
 	}
     }
-  
+
+  /* if (!user) */
+  /*   { */
+  /*     f->eip = f->eax; */
+  /*     f->eax = 0xffffffff; */
+  /*   } */
   /* To implement virtual memory, delete the rest of the function
      body, and replace it with code that brings in the page to
      which fault_addr refers. */

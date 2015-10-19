@@ -14,7 +14,6 @@
 #include "devices/timer.h"
 #ifdef USERPROG
 #include "userprog/process.h"
-#include "vm/page.h"
 #endif
 
 /* Random value for struct thread's `magic' member.
@@ -255,6 +254,7 @@ thread_create (const char *name, int priority,
 
   list_init (&(t->donate_list));
   list_init (&(t->file_descriptors));
+  list_init (&(t->mmap_regions));
   t->waiting_for_lock = NULL;
   t->waiting_for_semaphore = NULL;
   t->donated_by = NULL;

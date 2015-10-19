@@ -15,6 +15,7 @@
 #include <string.h>
 #include "devices/shutdown.h"
 #include "devices/input.h"
+#include "vm/page.h"
 
 char *read_string (uint32_t);
 struct file *get_file_from_handle (int);
@@ -30,6 +31,8 @@ void handle_sys_wait (struct intr_frame *);
 void handle_sys_seek (struct intr_frame *);
 void handle_sys_tell (struct intr_frame *);
 void handle_sys_remove (struct intr_frame *);
+void handle_sys_mmap (struct intr_frame *);
+void handle_sys_munmap (struct intr_frame *);
 static void syscall_handler (struct intr_frame *);
 
 struct file_descriptor
@@ -288,23 +291,39 @@ void
 handle_sys_close (struct intr_frame *f)
 {
   uint32_t ARG0;
+  bool close = true;
   ARG0 = *(uint32_t *) (f->esp + (sizeof (uint32_t)));
 
   if (ARG0 < 2)
     handle_sys_exit (f, -1);
 
   struct thread *cur = thread_current ();
-  struct list *list = &cur->file_descriptors;
+  struct list *list, *l;
   struct file_descriptor *file_desc;
-  struct list_elem *e;
+  struct mmap_region *m;
+  struct list_elem *e,*d;
 
+  list = &cur->file_descriptors;
   for (e = list_begin (list); e != list_end (list);
        e = list_next (e))
     {
       file_desc = list_entry (e, struct file_descriptor, elem);
       if (file_desc->fd == (int) ARG0)
 	{
-	  file_close (file_desc->file);
+	  l = &cur->mmap_regions;
+	  for (d = list_begin (l); d != list_end (l);
+	       d = list_next (d))
+	    {
+	      m = list_entry (d, struct mmap_region, elem);
+	      if (m->file == file_desc->file)
+		{
+		  close = false;
+		  break;
+		}
+	    }
+  
+	  if (close)
+	    file_close (file_desc->file);
 	  list_remove (&file_desc->elem);
 	  f->eax = true;
 	  return;
@@ -485,6 +504,60 @@ handle_sys_remove (struct intr_frame *f)
   free (file_name);
 }
 
+void
+handle_sys_mmap (struct intr_frame *f)
+{
+  uint32_t handle, data_ptr;
+  struct file *file;
+  struct list *list;
+  struct mmap_region *m, *last;
+
+  handle = *(uint32_t *) (f->esp + (sizeof (uint32_t)));
+  data_ptr = *(uint32_t *) (f->esp + 2 * (sizeof (uint32_t)));
+  file = get_file_from_handle (handle);
+
+  m = malloc (sizeof (struct mmap_region));
+  m->ptr = data_ptr;
+  m->file = file;
+
+  if (list_empty (&thread_current ()->mmap_regions))
+    {
+      m->mmap_id = 0;
+      list_push_back (&thread_current ()->mmap_regions, &m->elem);
+      f->eax = 0;
+    }
+  else
+    {
+      list = &(thread_current ()->mmap_regions);
+      last = list_entry (list_rbegin (list), struct mmap_region, elem);
+      m->mmap_id = last->mmap_id + 1;
+      list_push_back (list, &m->elem);
+      f->eax = m->mmap_id;
+    }
+}
+
+void
+handle_sys_munmap (struct intr_frame *f)
+{
+  uint32_t mmap_id = *(uint32_t *) (f->esp + (sizeof (uint32_t)));
+
+  struct thread *cur = thread_current ();
+  struct list *list = &cur->mmap_regions;
+  struct mmap_region *m;
+  struct list_elem *e;
+
+  for (e = list_begin (list); e != list_end (list);
+       e = list_next (e))
+    {
+      m = list_entry (e, struct mmap_region, elem);
+      if (m->mmap_id == (int) mmap_id)
+	{
+	  list_remove (&m->elem);
+	  return;
+	}
+    }
+  handle_sys_exit (f, -1);
+}
 static void
 syscall_handler (struct intr_frame *f) 
 {
@@ -532,6 +605,12 @@ syscall_handler (struct intr_frame *f)
       break;
     case SYS_TELL :
       handle_sys_tell (f);
+      break;
+    case SYS_MMAP :
+      handle_sys_mmap (f);
+      break;
+    case SYS_MUNMAP :
+      handle_sys_munmap (f);
       break;
     default :
       handle_sys_exit (f, -1);      
