@@ -3,7 +3,6 @@
 #include "filesys/directory.h"
 #include "filesys/filesys.h"
 #include "filesys/file.h"
-#include <stdio.h>
 #include <syscall-nr.h>
 #include "threads/interrupt.h"
 #include "threads/thread.h"
@@ -13,7 +12,6 @@
 #include "filesys/off_t.h"
 #include "filesys/inode.h"
 #include "threads/malloc.h"
-#include <string.h>
 #include "devices/shutdown.h"
 #include "devices/input.h"
 #include "vm/page.h"
@@ -42,6 +40,7 @@ struct file_descriptor
   struct file *file;
   struct list_elem elem;
 };
+
 /* Reads a byte at user virtual address UADDR.
    UADDR must be below PHYS_BASE.
    Returns the byte value if successful, -1 if a segfault
@@ -186,6 +185,14 @@ handle_sys_exit (struct intr_frame *f, int status)
   free (exit_message);
   f->eax = status;
   thread_current ()->exit_status = status;
+
+  struct child_status *cs = malloc (sizeof (struct child_status));
+  cs->tid = thread_current ()->tid;
+  cs->status = status;
+  if (&thread_current ()->parent)
+    list_push_front (&thread_current ()->parent->child_status_list,
+		     &cs->elem);
+
   thread_exit ();
 }
 
@@ -471,7 +478,9 @@ handle_sys_exec (struct intr_frame *f)
     {
       struct thread *t = list_entry (e, struct thread, allelem);
       if (t->tid == child_tid)
-	sema_down (&t->load);
+	{
+	  sema_down (&t->load);
+	}
     } 
 
   free (cmd_line);
@@ -479,7 +488,6 @@ handle_sys_exec (struct intr_frame *f)
     f->eax = -1;
   else
     f->eax = child_tid;
-
 }
 
 void 
@@ -487,7 +495,6 @@ handle_sys_wait (struct intr_frame *f)
 {
   tid_t child_tid;
   child_tid = *(uint32_t *) (f->esp + (sizeof (uint32_t)));
-  
   f->eax = process_wait (child_tid);
 }
 
@@ -550,9 +557,6 @@ handle_sys_mmap (struct intr_frame *f)
   data_ptr = *(uint32_t *) (f->esp + 2 * (sizeof (uint32_t)));
   file = get_file_from_handle (handle);
 
-
-  //  printf("-- %x\n", data_ptr);
-  
   struct hash_elem *e;
   struct suppl_page *s = malloc (sizeof (struct suppl_page));
   s->addr = (void *) pg_round_down(data_ptr);
@@ -599,22 +603,21 @@ write_back_mmap (struct mmap_region *m)
 
   for (cur = 0; cur <= file_size; cur += PGSIZE)
     {
-      struct suppl_page *s = malloc (sizeof (struct suppl_page));
-      s->addr = (void *) m->ptr + cur;
-      e = hash_find (&thread_current()->suppl_page_table,
-		     &s->hash_elem);
-
-      if (e)
+      uint32_t write_bytes = (file_size - cur) > PGSIZE ? PGSIZE : (file_size - cur);
+      if (pagedir_is_dirty (thread_current ()->pagedir, m->ptr + cur))
 	{
-	  struct suppl_page *page = hash_entry (e, struct suppl_page, hash_elem);
-	  if (pagedir_is_dirty (thread_current ()->pagedir, page->addr))
-	    if (file_write_at (page->file, page->addr, page->read_bytes, cur) 
-		!= (int) page->read_bytes)
-	      {
-		handle_sys_exit (f, -1);
-	      }
+	  if (file_write_at (f, m->ptr + cur, write_bytes, cur)
+	      != (int) write_bytes)
+	    {
+	    }
+	  struct suppl_page *s = malloc (sizeof (struct suppl_page));
+	  s->addr = (void *) m->ptr + cur;
+	  e = hash_find (&thread_current()->suppl_page_table,
+	  		 &s->hash_elem);
+	  if (e)
+	    hash_delete (&thread_current ()->suppl_page_table, e);
+	  free (s);
 	}
-      
     }
 }
 
@@ -647,7 +650,6 @@ syscall_handler (struct intr_frame *f)
 {
   if ((uint32_t) f->esp > (uint32_t) PHYS_BASE || ((uint32_t) f->esp) < 0x08048000)
     handle_sys_exit (f, -1);
-
 
   switch ( *(uint32_t *) f->esp)
     {

@@ -95,10 +95,12 @@ struct thread
     int donated_priority;
     struct thread * donated_by;
     struct lock * waiting_for_lock;
+    struct lock suppl_page_lock;
     struct semaphore * waiting_for_semaphore;
     struct list donate_list;
+    struct list child_status_list;
     struct list_elem allelem;           /* List element for all threads list. */
-
+    struct thread *parent;
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
     struct list_elem sema_elem;         /* List element for semaphore waiting list. */

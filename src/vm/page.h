@@ -17,6 +17,8 @@ struct suppl_page
   uint32_t read_bytes;
   uint32_t zero_bytes;
   bool writable;
+  bool swapped;
+  size_t swap_idx;
   enum lazy_page_type page_type;
 };
 
@@ -27,6 +29,7 @@ struct mmap_region
   struct file *file;
   struct list_elem elem;
 };
+
 unsigned suppl_page_hash (const struct hash_elem *, void *);
 bool suppl_page_less (const struct hash_elem *, const struct hash_elem*, void *);
 bool force_load_page (struct suppl_page *);

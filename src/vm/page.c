@@ -1,8 +1,13 @@
 #include "vm/page.h"
-#include <debug.h>
-#include "threads/malloc.h"
 #include "vm/frame.h"
+#include <debug.h>
+#include <bitmap.h>
+#include <string.h>
+#include "threads/malloc.h"
+#include "threads/vaddr.h"
 #include "userprog/process.h"
+#include "devices/block.h"
+
 unsigned
 suppl_page_hash (const struct hash_elem *p_, void *aux UNUSED)
 {
@@ -23,39 +28,72 @@ suppl_page_less (const struct hash_elem *a_, const struct hash_elem *b_,
 bool
 force_load_page (struct suppl_page *s)
 {
-  /* Get a page of memory. */
-  uint8_t *kpage = frame_get_page (PAL_USER);
+  struct frame *frame = frame_get_page (PAL_USER);
+  lock_acquire (&lock);
+  frame->uaddr = s->addr;
+  if (!frame)
+    {
+      printf ("No frame !\n");
+      return false;
+    }
+
+  uint8_t *kpage = frame->kaddr;
   if (kpage == NULL)
-    return false;
-
-  /* Load this page. */
-  if (s->page_type == segment_page)
     {
-      if (file_read_at (s->file, kpage, s->read_bytes, s->file_page) 
-	  != (int) s->read_bytes)
-	{
-	  frame_free_page (kpage);
-	  return false; 
-	}
-      memset (kpage + s->read_bytes, 0, s->zero_bytes);
+      printf ("No frame !!\n");
+      return false;
     }
 
-  if (s->page_type == mmap_page)
+  if (s->swapped)
     {
-      if (file_read_at (s->file, kpage, s->read_bytes, s->file_page) 
-	  != (int) s->read_bytes)
+      struct block *block;
+      block = block_get_role (BLOCK_SWAP);
+      int i;
+      for (i = 0; i < 8; i++)
 	{
-	  frame_free_page (kpage);
-	  return false; 
+	  block_read (block, s->swap_idx * PGSIZE / 512 + i, kpage + i * 512);
 	}
-      memset (kpage + s->read_bytes, 0, s->zero_bytes);      
+      bitmap_set_multiple (swap_map, s->swap_idx, 1, false);
     }
 
+  else {
+    if (s->page_type == segment_page)
+      {
+	if (s->read_bytes > 0)
+	  if (file_read_at (s->file, kpage, s->read_bytes, s->file_page) 
+	      != (int) s->read_bytes)
+	    {
+	      frame_free_page (kpage);
+	      printf ("File read went wrong !\n");
+	      lock_release (&lock);
+	      return false; 
+	    }
+	memset (kpage + s->read_bytes, 0, s->zero_bytes);
+      }
+
+    if (s->page_type == mmap_page)
+      {
+	if (s->read_bytes > 0)
+	  if (file_read_at (s->file, kpage, s->read_bytes, s->file_page) 
+	      != (int) s->read_bytes)
+	    {
+	      printf ("File read went wrong !!\n");
+	      frame_free_page (kpage);
+	      lock_release (&lock);
+	      return false; 
+	    }
+	memset (kpage + s->read_bytes, 0, s->zero_bytes);      
+      }
+  }
   /* Add the page to the process's address space. */
   if (!install_page (s->addr, kpage, s->writable)) 
     {
+      printf ("Installing page went wrong !\n");
       frame_free_page (kpage);
+      lock_release (&lock);
       return false; 
     }
+  lock_release (&lock);
+  return true;
 }
 

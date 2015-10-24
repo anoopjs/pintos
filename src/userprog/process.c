@@ -8,6 +8,7 @@
 #include "userprog/gdt.h"
 #include "userprog/pagedir.h"
 #include "userprog/tss.h"
+#include "userprog/syscall.h"
 #include "filesys/directory.h"
 #include "threads/flags.h"
 #include "threads/init.h"
@@ -96,20 +97,20 @@ process_wait (tid_t child_tid)
 {
   int status;
   struct list_elem *e;
+
   for (e = list_begin (&all_list); e != list_end (&all_list);
        e = list_next (e))
     {
       struct thread *t = list_entry (e, struct thread, allelem);
       if (t->tid == child_tid)
       	{
-	  sema_down (&t->one);
-	  status = t->exit_status;
-	  sema_up (&t->two);
-	  sema_down (&t->one);
-	  return status;
+  	  sema_down (&t->one);
+  	  status = t->exit_status;
+  	  sema_up (&t->two);
+  	  sema_down (&t->one);
+  	  return status;
       	}
-    } 
-
+    }
   return -1;
 }
 
@@ -120,11 +121,9 @@ process_exit (void)
   struct thread *cur = thread_current ();
   uint32_t *pd;
 
-#ifdef USERPROG
   sema_up (&cur->one);
   sema_down (&cur->two);
   file_close (cur->file);
-#endif
   
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
@@ -490,7 +489,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
       lazy_page->zero_bytes = page_zero_bytes;
       lazy_page->writable = writable;
       lazy_page->page_type = segment_page;
-      //printf("--> %x %x\n", upage, cur_ofs);
+      lazy_page->swapped = false;
       hash_insert (&thread_current()->suppl_page_table,
 		   &lazy_page->hash_elem);
 
@@ -510,11 +509,22 @@ setup_stack (void **esp)
 {
   uint8_t *kpage;
   bool success = false;
-
-  kpage = frame_get_page (PAL_ZERO);
+  struct frame *frame = frame_get_page (PAL_ZERO);
+  kpage = (uint8_t *) frame->kaddr;
+  //  lock_acquire (&lock);
+  frame->uaddr = ((uint8_t *) PHYS_BASE) - PGSIZE;
+  //  lock_release (&lock);
   if (kpage != NULL) 
     {
       success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
+      struct suppl_page *s_page = malloc (sizeof (struct suppl_page));
+      s_page->addr = (void *) pg_round_down(frame->uaddr);
+      s_page->writable = true;
+      s_page->page_type = stack_page;
+      s_page->swapped = false;
+      hash_insert (&thread_current ()->suppl_page_table,
+		   &s_page->hash_elem);
+
       if (success)
         *esp = PHYS_BASE;
       else

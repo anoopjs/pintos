@@ -123,7 +123,9 @@ palloc_free_multiple (void *pages, size_t page_cnt)
 
   ASSERT (pg_ofs (pages) == 0);
   if (pages == NULL || page_cnt == 0)
-    return;
+    {
+      return;
+    }
 
   if (page_from_pool (&kernel_pool, pages))
     pool = &kernel_pool;
@@ -138,8 +140,10 @@ palloc_free_multiple (void *pages, size_t page_cnt)
   memset (pages, 0xcc, PGSIZE * page_cnt);
 #endif
 
+  lock_acquire (&pool->lock);
   ASSERT (bitmap_all (pool->used_map, page_idx, page_cnt));
   bitmap_set_multiple (pool->used_map, page_idx, page_cnt, false);
+  lock_release (&pool->lock);
 }
 
 /* Frees the page at PAGE. */

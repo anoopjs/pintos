@@ -16,6 +16,7 @@ static long long page_fault_cnt;
 static void kill (struct intr_frame *);
 static void page_fault (struct intr_frame *);
 
+struct lock page_fault_lock;
 /* Registers handlers for interrupts that can be caused by user
    programs.
 
@@ -34,6 +35,8 @@ static void page_fault (struct intr_frame *);
 void
 exception_init (void) 
 {
+
+  lock_init (&page_fault_lock);
   /* These exceptions can be raised explicitly by a user program,
      e.g. via the INT, INT3, INTO, and BOUND instructions.  Thus,
      we set DPL==3, meaning that user programs are allowed to
@@ -145,6 +148,7 @@ page_fault (struct intr_frame *f)
   /* Turn interrupts back on (they were only off so that we could
      be assured of reading CR2 before it changed). */
   intr_enable ();
+  lock_acquire (&page_fault_lock);
 
   /* Count page faults. */
   page_fault_cnt++;
@@ -157,7 +161,6 @@ page_fault (struct intr_frame *f)
   if (user || (uint32_t) f->esp > (uint32_t) PHYS_BASE
       || ((uint32_t) f->esp) < 0x08048000)
     {
-
       if (fault_addr < PHYS_BASE && fault_addr > 0x08048000)
 	{
 	  struct hash_elem *e;
@@ -169,9 +172,14 @@ page_fault (struct intr_frame *f)
 	    {
 	      struct suppl_page *page = hash_entry (e, struct suppl_page, hash_elem);
 	      if ((write && page->writable) || !write)
-		force_load_page (page);
+		{
+		  force_load_page (page);
+		}
 	      else
-		handle_sys_exit (f, -1);
+		{
+		  lock_release (&page_fault_lock);
+		  handle_sys_exit (f, -1);
+		}
 	    }
 	  else
 	    {
@@ -182,12 +190,13 @@ page_fault (struct intr_frame *f)
 		  stack_page->writable = true;
 		  stack_page->page_type = mmap_page;
 		  stack_page->file = m->file;
-		  stack_page->file_page = (fault_addr - m->ptr);
+		  stack_page->file_page = pg_round_down (fault_addr - m->ptr);
 		  stack_page->read_bytes =
 		    ((file_length (m->file) - stack_page->file_page) > PGSIZE)
 		    ? PGSIZE : (file_length (m->file) - stack_page->file_page);
 		  stack_page->zero_bytes =
 		    PGSIZE - stack_page->read_bytes;
+		  stack_page->swapped = false;
 		  hash_insert (&thread_current ()->suppl_page_table,
 		  	   &stack_page->hash_elem);
 		  
@@ -198,20 +207,24 @@ page_fault (struct intr_frame *f)
 		  s_page->addr = (void *) pg_round_down(fault_addr);
 		  s_page->writable = true;
 		  s_page->page_type = stack_page;
+		  s_page->swapped = false;
 		  hash_insert (&thread_current ()->suppl_page_table,
 			   &s_page->hash_elem);
 		}
 	      else
 		{
+		  lock_release (&page_fault_lock);
 		  handle_sys_exit (f, -1);
 		}
 	    }
 	}
       else
 	{
+	  lock_release (&page_fault_lock);
 	  handle_sys_exit (f, -1);
 	}
     }
+  lock_release (&page_fault_lock);
 
   /* if (!user) */
   /*   { */

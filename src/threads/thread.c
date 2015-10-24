@@ -101,6 +101,11 @@ thread_init (void)
   init_thread (initial_thread, "main", PRI_DEFAULT);
   initial_thread->status = THREAD_RUNNING;
   list_init (&initial_thread->donate_list);
+  list_init (&initial_thread->child_status_list);
+
+  lock_init (&initial_thread->suppl_page_lock);
+  
+  initial_thread->parent == NULL;
   initial_thread->waiting_for_lock = NULL;
   initial_thread->waiting_for_semaphore = NULL;
   initial_thread->donated_by = NULL;
@@ -252,15 +257,20 @@ thread_create (const char *name, int priority,
   sf->eip = switch_entry;
   sf->ebp = 0;
 
+  t->parent = thread_current ();;
+
   list_init (&(t->donate_list));
   list_init (&(t->file_descriptors));
   list_init (&(t->mmap_regions));
+  list_init (&(t->child_status_list));
+
   t->waiting_for_lock = NULL;
   t->waiting_for_semaphore = NULL;
   t->donated_by = NULL;
   t->nice = thread_get_nice ();
   t->recent_cpu = thread_get_recent_cpu ();
 
+  lock_init (&t->suppl_page_lock);
   sema_init (&t->one, 0);
   sema_init (&t->two, 0);
   sema_init (&t->load, 0);
