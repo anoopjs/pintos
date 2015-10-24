@@ -115,6 +115,7 @@ check_mmap_region (void *fault_addr)
 void
 syscall_init (void) 
 {
+  lock_init (&filesys_lock);
   intr_register_int (0x30, 3, INTR_ON, syscall_handler, "syscall");
 }
 
@@ -230,7 +231,7 @@ handle_sys_write (struct intr_frame *f)
       file = get_file_from_handle ((int) ARG0);
       if (file == NULL)
 	handle_sys_exit (f, -1);
-      
+
       f->eax = file_write (file, buffer, ARG2);
     }
 
@@ -418,7 +419,9 @@ handle_sys_read (struct intr_frame *f)
 	put_user (f, (void *) buffer + i, input_getc ());
     }
   else
-    file_read (file, buffer_temp, size);
+    {
+      file_read (file, buffer_temp, size);
+    }
 
   for (i = 0; i < (int) size; i++)
     {
@@ -509,7 +512,9 @@ handle_sys_seek (struct intr_frame *f)
   if (file == NULL)
     f->eax = -1;
   else
-    file_seek (file, position);
+    {
+      file_seek (file, position);
+    }
 }
 
 void
@@ -541,6 +546,7 @@ handle_sys_remove (struct intr_frame *f)
       if (file_name[i] == '\0')
 	break;
     }
+  
   f->eax = filesys_remove (file_name);
   free (file_name);
 }

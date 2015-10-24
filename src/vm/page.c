@@ -6,6 +6,7 @@
 #include "threads/malloc.h"
 #include "threads/vaddr.h"
 #include "userprog/process.h"
+#include "userprog/syscall.h"
 #include "devices/block.h"
 
 unsigned
@@ -60,28 +61,36 @@ force_load_page (struct suppl_page *s)
     if (s->page_type == segment_page)
       {
 	if (s->read_bytes > 0)
-	  if (file_read_at (s->file, kpage, s->read_bytes, s->file_page) 
-	      != (int) s->read_bytes)
-	    {
-	      frame_free_page (kpage);
-	      printf ("File read went wrong !\n");
-	      lock_release (&lock);
-	      return false; 
-	    }
+	  {
+	    lock_acquire (&filesys_lock);
+	    if (file_read_at (s->file, kpage, s->read_bytes, s->file_page) 
+		!= (int) s->read_bytes)
+	      {
+		frame_free_page (kpage);
+		printf ("File read went wrong !\n");
+		lock_release (&lock);
+		return false; 
+	      }
+	    lock_release (&filesys_lock);
+	  }
 	memset (kpage + s->read_bytes, 0, s->zero_bytes);
       }
 
     if (s->page_type == mmap_page)
       {
 	if (s->read_bytes > 0)
-	  if (file_read_at (s->file, kpage, s->read_bytes, s->file_page) 
-	      != (int) s->read_bytes)
-	    {
-	      printf ("File read went wrong !!\n");
-	      frame_free_page (kpage);
-	      lock_release (&lock);
-	      return false; 
+	  {
+	    lock_acquire (&filesys_lock);
+	    if (file_read_at (s->file, kpage, s->read_bytes, s->file_page) 
+		!= (int) s->read_bytes)
+	      {
+		printf ("File read went wrong !!\n");
+		frame_free_page (kpage);
+		lock_release (&lock);
+		return false; 
 	    }
+	    lock_release (&filesys_lock);
+	  }
 	memset (kpage + s->read_bytes, 0, s->zero_bytes);      
       }
   }

@@ -13,4 +13,5 @@ struct child_status
   struct list_elem elem;
 };
 
+struct lock filesys_lock;
 #endif /* userprog/syscall.h */
