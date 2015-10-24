@@ -18,6 +18,8 @@ uint32_t swap_size;
 struct bitmap *swap_map;
 struct lock lock;
 struct list frame_table;
+struct lock block_lock;
+struct block *block;
 struct frame * frame_get_page (enum palloc_flags);
 void frame_free_page (void *);
 void frame_init (void);

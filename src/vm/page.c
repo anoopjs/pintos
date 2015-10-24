@@ -30,7 +30,6 @@ bool
 force_load_page (struct suppl_page *s)
 {
   struct frame *frame = frame_get_page (PAL_USER);
-  lock_acquire (&lock);
   frame->uaddr = s->addr;
   if (!frame)
     {
@@ -44,17 +43,19 @@ force_load_page (struct suppl_page *s)
       printf ("No frame !!\n");
       return false;
     }
-
   if (s->swapped)
     {
-      struct block *block;
-      block = block_get_role (BLOCK_SWAP);
+      lock_acquire (&filesys_lock);
       int i;
       for (i = 0; i < 8; i++)
 	{
 	  block_read (block, s->swap_idx * PGSIZE / 512 + i, kpage + i * 512);
 	}
+      lock_acquire (&lock);
       bitmap_set_multiple (swap_map, s->swap_idx, 1, false);
+      lock_release (&lock);
+      lock_release (&filesys_lock);
+
     }
 
   else {
@@ -68,7 +69,6 @@ force_load_page (struct suppl_page *s)
 	      {
 		frame_free_page (kpage);
 		printf ("File read went wrong !\n");
-		lock_release (&lock);
 		return false; 
 	      }
 	    lock_release (&filesys_lock);
@@ -86,7 +86,6 @@ force_load_page (struct suppl_page *s)
 	      {
 		printf ("File read went wrong !!\n");
 		frame_free_page (kpage);
-		lock_release (&lock);
 		return false; 
 	    }
 	    lock_release (&filesys_lock);
@@ -94,15 +93,14 @@ force_load_page (struct suppl_page *s)
 	memset (kpage + s->read_bytes, 0, s->zero_bytes);      
       }
   }
+
   /* Add the page to the process's address space. */
   if (!install_page (s->addr, kpage, s->writable)) 
     {
       printf ("Installing page went wrong !\n");
       frame_free_page (kpage);
-      lock_release (&lock);
       return false; 
     }
-  lock_release (&lock);
   return true;
 }
 

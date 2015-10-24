@@ -16,7 +16,6 @@ static long long page_fault_cnt;
 static void kill (struct intr_frame *);
 static void page_fault (struct intr_frame *);
 
-struct lock page_fault_lock;
 /* Registers handlers for interrupts that can be caused by user
    programs.
 
@@ -36,7 +35,6 @@ void
 exception_init (void) 
 {
 
-  lock_init (&page_fault_lock);
   /* These exceptions can be raised explicitly by a user program,
      e.g. via the INT, INT3, INTO, and BOUND instructions.  Thus,
      we set DPL==3, meaning that user programs are allowed to
@@ -148,7 +146,6 @@ page_fault (struct intr_frame *f)
   /* Turn interrupts back on (they were only off so that we could
      be assured of reading CR2 before it changed). */
   intr_enable ();
-  lock_acquire (&page_fault_lock);
 
   /* Count page faults. */
   page_fault_cnt++;
@@ -160,14 +157,14 @@ page_fault (struct intr_frame *f)
 
   int esp = f->esp;
   if ((f->esp > PHYS_BASE || f->esp < 0x08048000)
-      && thread_current ()->esp < PHYS_BASE
-      && thread_current ()->esp > 0x08048000)
+      && thread_current ()->esp <= PHYS_BASE
+      && thread_current ()->esp >= 0x08048000)
     esp = thread_current ()->esp;
 
   if (user || (uint32_t) f->esp > (uint32_t) PHYS_BASE
       || ((uint32_t) f->esp) < 0x08048000)
     {
-      if (fault_addr < PHYS_BASE && fault_addr > 0x08048000)
+      if (fault_addr < PHYS_BASE && fault_addr >= 0x08048000)
 	{
 	  struct hash_elem *e;
 	  struct suppl_page *s = malloc (sizeof (struct suppl_page));
@@ -183,7 +180,6 @@ page_fault (struct intr_frame *f)
 		}
 	      else
 		{
-		  lock_release (&page_fault_lock);
 		  handle_sys_exit (f, -1);
 		}
 	    }
@@ -203,48 +199,46 @@ page_fault (struct intr_frame *f)
 		  stack_page->zero_bytes =
 		    PGSIZE - stack_page->read_bytes;
 		  stack_page->swapped = false;
+		  lock_acquire (&thread_current()->suppl_page_lock);
 		  hash_insert (&thread_current ()->suppl_page_table,
 		  	   &stack_page->hash_elem);
+		  lock_release (&thread_current()->suppl_page_lock);
 		  
 		}
-	      else if (fault_addr > (pg_round_up(esp) - 4096))
+	      else if (fault_addr >= (pg_round_up(esp) - 4096))
 		{
 		  struct suppl_page *s_page = malloc (sizeof (struct suppl_page));
 		  s_page->addr = (void *) pg_round_down(fault_addr);
 		  s_page->writable = true;
 		  s_page->page_type = stack_page;
 		  s_page->swapped = false;
+		  lock_acquire (&thread_current ()->suppl_page_lock);
 		  hash_insert (&thread_current ()->suppl_page_table,
 			   &s_page->hash_elem);
+		  lock_release (&thread_current ()->suppl_page_lock);
 		}
 	      else 
 		{
-		  lock_release (&page_fault_lock);
 		  handle_sys_exit (f, -1);
 		}
 	    }
 	}
       else
 	{
-	  lock_release (&page_fault_lock);
 	  handle_sys_exit (f, -1);
 	}
     }
-  lock_release (&page_fault_lock);
-
-  /* if (!user) */
-  /*   { */
-  /*     f->eip = f->eax; */
-  /*     f->eax = 0xffffffff; */
-  /*   } */
-  /* To implement virtual memory, delete the rest of the function
-     body, and replace it with code that brings in the page to
-     which fault_addr refers. */
-  /* printf ("Page fault at %p: %s error %s page in %s context.\n", */
-  /*         fault_addr, */
-  /*         not_present ? "not present" : "rights violation", */
-  /*         write ? "writing" : "reading", */
-  /*         user ? "user" : "kernel"); */
-  /* kill (f); */
+  else
+    {
+      /* To implement virtual memory, delete the rest of the function
+	 body, and replace it with code that brings in the page to
+	 which fault_addr refers. */
+      printf ("Page fault at %p: %s error %s page in %s context.\n",
+              fault_addr,
+              not_present ? "not present" : "rights violation",
+              write ? "writing" : "reading",
+              user ? "user" : "kernel");
+      kill (f);
+    }
 }
 

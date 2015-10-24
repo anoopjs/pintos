@@ -233,7 +233,9 @@ handle_sys_write (struct intr_frame *f)
       if (file == NULL)
 	handle_sys_exit (f, -1);
 
+      lock_acquire (&filesys_lock);
       f->eax = file_write (file, buffer, ARG2);
+      lock_release (&filesys_lock);
     }
 
   free (buffer);
@@ -279,7 +281,9 @@ handle_sys_create (struct intr_frame *f)
 	    }
 	  else
 	    {
+	      lock_acquire (&filesys_lock);
 	      filesys_create (file_name, ARG2);
+	      lock_release (&filesys_lock);
 	    }
 	  dir_close (d);
 	}
@@ -303,7 +307,9 @@ handle_sys_open (struct intr_frame *f)
       return;
     }
   file_name = read_string (ARG0);
+  lock_acquire (&filesys_lock);
   file = filesys_open (file_name);
+  lock_release (&filesys_lock);
   if (file != NULL)
     {
       file_descriptor = malloc (sizeof (struct file_descriptor));
@@ -421,7 +427,9 @@ handle_sys_read (struct intr_frame *f)
     }
   else
     {
+      lock_acquire (&filesys_lock);
       file_read (file, buffer_temp, size);
+      lock_release (&filesys_lock);
     }
 
   for (i = 0; i < (int) size; i++)
@@ -547,8 +555,9 @@ handle_sys_remove (struct intr_frame *f)
       if (file_name[i] == '\0')
 	break;
     }
-  
+  lock_acquire (&filesys_lock);
   f->eax = filesys_remove (file_name);
+  lock_release (&filesys_lock);
   free (file_name);
 }
 
@@ -613,16 +622,22 @@ write_back_mmap (struct mmap_region *m)
       uint32_t write_bytes = (file_size - cur) > PGSIZE ? PGSIZE : (file_size - cur);
       if (pagedir_is_dirty (thread_current ()->pagedir, m->ptr + cur))
 	{
+	  lock_acquire (&filesys_lock);
 	  if (file_write_at (f, m->ptr + cur, write_bytes, cur)
 	      != (int) write_bytes)
 	    {
 	    }
+	  lock_release (&filesys_lock);
 	  struct suppl_page *s = malloc (sizeof (struct suppl_page));
 	  s->addr = (void *) m->ptr + cur;
 	  e = hash_find (&thread_current()->suppl_page_table,
 	  		 &s->hash_elem);
 	  if (e)
-	    hash_delete (&thread_current ()->suppl_page_table, e);
+	    {
+	      lock_acquire (&thread_current ()->suppl_page_lock);
+	      hash_delete (&thread_current ()->suppl_page_table, e);
+	      lock_release (&thread_current ()->suppl_page_lock);
+	    }
 	  free (s);
 	}
     }
