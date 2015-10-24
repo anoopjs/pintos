@@ -158,6 +158,12 @@ page_fault (struct intr_frame *f)
   write = (f->error_code & PF_W) != 0;
   user = (f->error_code & PF_U) != 0;
 
+  int esp = f->esp;
+  if ((f->esp > PHYS_BASE || f->esp < 0x08048000)
+      && thread_current ()->esp < PHYS_BASE
+      && thread_current ()->esp > 0x08048000)
+    esp = thread_current ()->esp;
+
   if (user || (uint32_t) f->esp > (uint32_t) PHYS_BASE
       || ((uint32_t) f->esp) < 0x08048000)
     {
@@ -201,7 +207,7 @@ page_fault (struct intr_frame *f)
 		  	   &stack_page->hash_elem);
 		  
 		}
-	      else if (fault_addr > (f->esp - 4096))
+	      else if (fault_addr > (pg_round_up(esp) - 4096))
 		{
 		  struct suppl_page *s_page = malloc (sizeof (struct suppl_page));
 		  s_page->addr = (void *) pg_round_down(fault_addr);
@@ -211,7 +217,7 @@ page_fault (struct intr_frame *f)
 		  hash_insert (&thread_current ()->suppl_page_table,
 			   &s_page->hash_elem);
 		}
-	      else
+	      else 
 		{
 		  lock_release (&page_fault_lock);
 		  handle_sys_exit (f, -1);

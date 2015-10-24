@@ -49,7 +49,7 @@ static int
 get_user (struct intr_frame *f, const uint8_t *uaddr)
 {
   int result;
-
+  thread_current ()->esp = f->esp;
   if ((uint32_t) uaddr <= (uint32_t) PHYS_BASE)
     {
       asm ("movl $1f, %0; movzbl %1, %0; 1:"
@@ -67,6 +67,7 @@ static bool
 put_user (struct intr_frame *f, uint8_t *udst, uint8_t byte)
 {
   int error_code;
+  thread_current ()->esp = f->esp;
   if ((uint32_t) udst <= (uint32_t) PHYS_BASE)
     {
       asm ("movl $1f, %0; movb %b2, %1; 1:"

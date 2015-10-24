@@ -120,7 +120,8 @@ struct thread
     struct hash suppl_page_table;
     struct list mmap_regions;
 #endif
-
+    uint32_t esp;
+    
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */
   };
