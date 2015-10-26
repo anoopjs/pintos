@@ -45,9 +45,9 @@ frame_get_page (enum palloc_flags flags)
 	  swap_size = block_size (block) * 512;
 	  swap_map = bitmap_create (swap_size / PGSIZE);
 	}
-      lock_acquire (&lock);
+      lock_acquire (&bitmap_lock);
       page_idx = bitmap_scan_and_flip (swap_map, 0, 1, false);
-      lock_release (&lock);
+      lock_release (&bitmap_lock);
       if (page_idx != BITMAP_ERROR)
 	{
 	  int i;
@@ -55,37 +55,37 @@ frame_get_page (enum palloc_flags flags)
 	  struct frame *f = get_lru_frame ();
 	  lock_release (&lock);
 
-	  lock_acquire (&filesys_lock);
 	  for (i = 0; i < 8; i++)
 	    {
 	      block_write (block, page_idx * PGSIZE / 512 + i, f->kaddr + i * 512);
 	    }
-	  lock_release (&filesys_lock);
-	  
+
 	  struct hash_elem *e;
 	  struct suppl_page *p;
 	  struct suppl_page *s_page = malloc (sizeof (struct suppl_page));
 	  s_page->addr = (void *) pg_round_down (f->uaddr);
 
+	  lock_acquire (&thread_current ()->suppl_page_lock);
 	  e = hash_find (&f->owner->suppl_page_table,
 			 &s_page->hash_elem);
 
 	  if (e)
 	    {
-	      lock_acquire (&thread_current ()->suppl_page_lock);
 	      p = hash_entry (e, struct suppl_page, hash_elem);
 	      p->swapped = true;
 	      p->swap_idx = page_idx;
-	      lock_release (&thread_current ()->suppl_page_lock);
 	    }
 	  else
 	    printf("No Page hash found for %x! \n", s_page->addr);
 	  
+	  lock_release (&thread_current ()->suppl_page_lock);
+	  lock_acquire (&lock);
 	  if (f->owner->pagedir)
 	    {
 	      pagedir_clear_page (f->owner->pagedir, pg_round_down(f->uaddr));
 	    }
-	  
+	  lock_release (&lock);
+
 	  lock_acquire (&lock);
 	  f->owner = thread_current ();
 	  memset (f->kaddr, 0, PGSIZE);
@@ -106,6 +106,7 @@ void frame_init ()
 {
   list_init (&frame_table);
   lock_init (&lock);
+  lock_init (&bitmap_lock);
   lock_init (&block_lock);
   swap_size = 0;
 }
@@ -116,19 +117,19 @@ void frame_free_page (void *page)
   struct frame *f;
   struct list_elem *e;
 
-  lock_acquire (&lock);
   for (e = list_begin (list); e != list_end (list);
        e = list_next (e))
     {
       f = list_entry (e, struct frame, elem);
       if (f->kaddr == page)
 	{
+	  lock_acquire (&lock);
 	  list_remove (&f->elem);
+	  lock_release (&lock);
 	  free (f);
 	  break;
 	}
     }
   memset (page, 0xcc, PGSIZE);
   palloc_free_page (page);
-  lock_release (&lock);
 }

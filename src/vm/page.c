@@ -45,17 +45,15 @@ force_load_page (struct suppl_page *s)
     }
   if (s->swapped)
     {
-      lock_acquire (&filesys_lock);
+      block = block_get_role (BLOCK_SWAP);
       int i;
       for (i = 0; i < 8; i++)
 	{
 	  block_read (block, s->swap_idx * PGSIZE / 512 + i, kpage + i * 512);
 	}
-      lock_acquire (&lock);
+      lock_acquire (&bitmap_lock);
       bitmap_set_multiple (swap_map, s->swap_idx, 1, false);
-      lock_release (&lock);
-      lock_release (&filesys_lock);
-
+      lock_release (&bitmap_lock);
     }
 
   else {
@@ -63,7 +61,7 @@ force_load_page (struct suppl_page *s)
       {
 	if (s->read_bytes > 0)
 	  {
-	    lock_acquire (&filesys_lock);
+	    //	    lock_acquire (&filesys_lock);
 	    if (file_read_at (s->file, kpage, s->read_bytes, s->file_page) 
 		!= (int) s->read_bytes)
 	      {
@@ -71,7 +69,7 @@ force_load_page (struct suppl_page *s)
 		printf ("File read went wrong !\n");
 		return false; 
 	      }
-	    lock_release (&filesys_lock);
+	    //	    lock_release (&filesys_lock);
 	  }
 	memset (kpage + s->read_bytes, 0, s->zero_bytes);
       }
@@ -80,7 +78,7 @@ force_load_page (struct suppl_page *s)
       {
 	if (s->read_bytes > 0)
 	  {
-	    lock_acquire (&filesys_lock);
+	    //	    lock_acquire (&filesys_lock);
 	    if (file_read_at (s->file, kpage, s->read_bytes, s->file_page) 
 		!= (int) s->read_bytes)
 	      {
@@ -88,7 +86,7 @@ force_load_page (struct suppl_page *s)
 		frame_free_page (kpage);
 		return false; 
 	    }
-	    lock_release (&filesys_lock);
+	    //	    lock_release (&filesys_lock);
 	  }
 	memset (kpage + s->read_bytes, 0, s->zero_bytes);      
       }

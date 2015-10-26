@@ -121,6 +121,13 @@ syscall_init (void)
 }
 
 void
+delete_suppl_page (struct hash_elem *e, void *aux)
+{
+  struct suppl_page *sp = hash_entry (e, struct suppl_page, hash_elem);
+  free (sp);
+}
+
+void
 handle_sys_exit (struct intr_frame *f, int status)
 {
   uint32_t *searcher, ARG0;
@@ -158,6 +165,8 @@ handle_sys_exit (struct intr_frame *f, int status)
       list_remove (&cur->elem);
       free (cur);
     }
+
+  hash_destroy (&thread_current ()->suppl_page_table, delete_suppl_page);
 
   for (searcher = PHYS_BASE; *searcher != 0; --searcher) ;
   searcher++;

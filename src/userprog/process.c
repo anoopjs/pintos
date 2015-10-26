@@ -490,10 +490,10 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
       lazy_page->writable = writable;
       lazy_page->page_type = segment_page;
       lazy_page->swapped = false;
-      //      lock_acquire (&thread_current()->suppl_page_lock);
+      lock_acquire (&thread_current()->suppl_page_lock);
       hash_insert (&thread_current()->suppl_page_table,
 		   &lazy_page->hash_elem);
-      //      lock_release (&thread_current()->suppl_page_lock);
+      lock_release (&thread_current()->suppl_page_lock);
 
       /* Advance. */
       read_bytes -= page_read_bytes;
@@ -513,9 +513,7 @@ setup_stack (void **esp)
   bool success = false;
   struct frame *frame = frame_get_page (PAL_ZERO);
   kpage = (uint8_t *) frame->kaddr;
-  lock_acquire (&lock);
   frame->uaddr = ((uint8_t *) PHYS_BASE) - PGSIZE;
-  lock_release (&lock);
   if (kpage != NULL) 
     {
       success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
