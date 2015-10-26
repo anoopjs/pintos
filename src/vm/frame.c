@@ -10,6 +10,7 @@
 #include "devices/block.h"
 #include "userprog/syscall.h"
 struct frame *
+
 get_lru_frame (void)
 {
   struct frame *f = NULL;
@@ -127,6 +128,7 @@ void frame_free_page (void *page)
 	  break;
 	}
     }
+  memset (page, 0xcc, PGSIZE);
   palloc_free_page (page);
   lock_release (&lock);
 }

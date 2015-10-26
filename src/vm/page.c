@@ -94,7 +94,6 @@ force_load_page (struct suppl_page *s)
       }
   }
 
-  /* Add the page to the process's address space. */
   if (!install_page (s->addr, kpage, s->writable)) 
     {
       printf ("Installing page went wrong !\n");

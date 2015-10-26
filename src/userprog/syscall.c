@@ -373,6 +373,7 @@ handle_sys_close (struct intr_frame *f)
   
 	  if (close)
 	    file_close (file_desc->file);
+
 	  list_remove (&file_desc->elem);
 	  f->eax = true;
 	  return;
@@ -406,9 +407,10 @@ void
 handle_sys_read (struct intr_frame *f)
 {
   uint32_t fd, buffer, size;
-  fd = *(uint32_t *) (f->esp + (sizeof (uint32_t)));
+  fd     = *(uint32_t *) (f->esp + (sizeof (uint32_t)));
   buffer = *(uint32_t *) (f->esp + (sizeof (uint32_t)) * 2);
-  size = *(uint32_t *) (f->esp + (sizeof (uint32_t)) * 3);
+  size   = *(uint32_t *) (f->esp + (sizeof (uint32_t) * 3));
+
   int i;
   struct file *file = NULL;
 
@@ -424,11 +426,12 @@ handle_sys_read (struct intr_frame *f)
     {
       for (i = 0; i < (int) size; i++)
 	put_user (f, (void *) buffer + i, input_getc ());
+      f->eax = size;
     }
   else
     {
       lock_acquire (&filesys_lock);
-      file_read (file, buffer_temp, size);
+      f->eax = file_read (file, buffer_temp, size);
       lock_release (&filesys_lock);
     }
 
@@ -437,7 +440,6 @@ handle_sys_read (struct intr_frame *f)
       put_user (f, (void *) buffer + i, buffer_temp[i]);
     }
   free (buffer_temp);
-  f->eax = size;
 }
 
 void
