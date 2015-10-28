@@ -11,7 +11,6 @@
 /* This is the max file size for an older version of the Pintos
    file system that had 126 direct blocks each pointing to a
    single disk sector.  We could raise it now. */
-/* #define CHUNK_SIZE (126 * 512) */
 #define CHUNK_SIZE (126 * 512)
 #define CHUNK_CNT 16                           /* Number of chunks. */
 

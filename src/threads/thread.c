@@ -104,7 +104,9 @@ thread_init (void)
   list_init (&initial_thread->child_status_list);
 
   lock_init (&initial_thread->suppl_page_lock);
-  
+  /* hash_init (&initial_thread->suppl_page_table, */
+  /* 	     suppl_page_hash, suppl_page_less, NULL); */
+
   initial_thread->parent == NULL;
   initial_thread->waiting_for_lock = NULL;
   initial_thread->waiting_for_semaphore = NULL;
@@ -259,6 +261,7 @@ thread_create (const char *name, int priority,
 
   t->parent = thread_current ();;
 
+  hash_init (&t->suppl_page_table, suppl_page_hash, suppl_page_less, NULL);
   list_init (&(t->donate_list));
   list_init (&(t->file_descriptors));
   list_init (&(t->mmap_regions));
@@ -275,7 +278,6 @@ thread_create (const char *name, int priority,
   sema_init (&t->two, 0);
   sema_init (&t->load, 0);
 
-  hash_init (&t->suppl_page_table, suppl_page_hash, suppl_page_less, NULL);
   /* Add to run queue. */
   thread_unblock (t);
   return tid;

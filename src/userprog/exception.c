@@ -9,6 +9,7 @@
 #include "threads/vaddr.h"
 #include "threads/malloc.h"
 #include "vm/page.h"
+#include "vm/frame.h"
 
 /* Number of page faults processed. */
 static long long page_fault_cnt;
@@ -175,7 +176,9 @@ page_fault (struct intr_frame *f)
 	      struct suppl_page *page = hash_entry (e, struct suppl_page, hash_elem);
 	      if ((write && page->writable) || !write)
 		{
+		  //lock_acquire (&lock);
 		  force_load_page (page);
+		  //lock_release (&lock);
 		}
 	      else
 		{
@@ -202,7 +205,7 @@ page_fault (struct intr_frame *f)
 		  hash_insert (&thread_current ()->suppl_page_table,
 		  	   &stack_page->hash_elem);
 		  lock_release (&thread_current()->suppl_page_lock);
-		  
+		  force_load_page (stack_page);
 		}
 	      else if (fault_addr >= (pg_round_up(esp) - 4096))
 		{
@@ -215,15 +218,22 @@ page_fault (struct intr_frame *f)
 		  hash_insert (&thread_current ()->suppl_page_table,
 			   &s_page->hash_elem);
 		  lock_release (&thread_current ()->suppl_page_lock);
+		  force_load_page (s_page);		  
 		}
 	      else 
 		{
+
 		  handle_sys_exit (f, -1);
 		}
 	    }
 	}
       else
 	{
+	  printf ("Page fault at %p: %s error %s page in %s context.\n",
+		  fault_addr,
+		  not_present ? "not present" : "rights violation",
+		  write ? "writing" : "reading",
+		  user ? "user" : "kernel");
 	  handle_sys_exit (f, -1);
 	}
     }

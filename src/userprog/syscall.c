@@ -14,10 +14,15 @@
 #include "threads/malloc.h"
 #include "devices/shutdown.h"
 #include "devices/input.h"
+#include "userprog/pagedir.h"
 #include "vm/page.h"
+#include "vm/frame.h"
 
 char *read_string (uint32_t);
 struct file *get_file_from_handle (int);
+struct mmap_region *check_mmap_region (void *);
+void write_back_mmap (struct mmap_region *);
+void delete_suppl_page (struct hash_elem *, void *);
 void handle_sys_exit (struct intr_frame *, int);
 void handle_sys_create (struct intr_frame *);
 void handle_sys_open (struct intr_frame *);
@@ -49,7 +54,7 @@ static int
 get_user (struct intr_frame *f, const uint8_t *uaddr)
 {
   int result;
-  thread_current ()->esp = f->esp;
+  thread_current ()->esp = (uint32_t) f->esp; 
   if ((uint32_t) uaddr <= (uint32_t) PHYS_BASE)
     {
       asm ("movl $1f, %0; movzbl %1, %0; 1:"
@@ -67,7 +72,7 @@ static bool
 put_user (struct intr_frame *f, uint8_t *udst, uint8_t byte)
 {
   int error_code;
-  thread_current ()->esp = f->esp;
+  thread_current ()->esp = (uint32_t) f->esp;
   if ((uint32_t) udst <= (uint32_t) PHYS_BASE)
     {
       asm ("movl $1f, %0; movb %b2, %1; 1:"
@@ -104,7 +109,8 @@ check_mmap_region (void *fault_addr)
        e = list_next (e))
     {
       m = list_entry (e, struct mmap_region, elem);
-      if (fault_addr >= m->ptr && fault_addr <= (m->ptr + file_length(m->file))
+      if (fault_addr >= (void *) m->ptr 
+	  && fault_addr <= (void *) (m->ptr + file_length(m->file))
 	  && file_length (m->file) != 0)
 	{
 	  return m;
@@ -121,7 +127,7 @@ syscall_init (void)
 }
 
 void
-delete_suppl_page (struct hash_elem *e, void *aux)
+delete_suppl_page (struct hash_elem *e, void *aux UNUSED)
 {
   struct suppl_page *sp = hash_entry (e, struct suppl_page, hash_elem);
   free (sp);
@@ -130,7 +136,7 @@ delete_suppl_page (struct hash_elem *e, void *aux)
 void
 handle_sys_exit (struct intr_frame *f, int status)
 {
-  uint32_t *searcher, ARG0;
+  uint32_t *searcher, ARG0 = 0;
   int ofs, i;
   char *buffer, *exit_message, *brkt;
   size_t exit_message_size;
@@ -139,9 +145,9 @@ handle_sys_exit (struct intr_frame *f, int status)
   struct file_descriptor *cur;
   struct mmap_region *m;
 
-  if (status == NULL)
+  if (status == (int) NULL)
     {
-      if (f->esp + (sizeof (uint32_t) * 2) > PHYS_BASE)
+      if ((void *) f->esp + (sizeof (uint32_t) * 2) > PHYS_BASE)
 	handle_sys_exit (f, -1);
       ARG0 = *(uint32_t *) (f->esp + (sizeof (uint32_t)));
     }
@@ -166,8 +172,24 @@ handle_sys_exit (struct intr_frame *f, int status)
       free (cur);
     }
 
-  hash_destroy (&thread_current ()->suppl_page_table, delete_suppl_page);
 
+  struct frame *frame;
+  lock_acquire (&lock);
+  list = &frame_table;
+  for (e = list_begin (list); e != list_end (list);
+       e = list_next (e))
+    {
+      frame = list_entry (e, struct frame, elem);
+      if (frame->owner == thread_current () && !frame->pin)
+	{
+	  list_remove (&frame->elem);
+	  break;
+	}
+    }
+  lock_acquire (&thread_current ()->suppl_page_lock);
+  hash_destroy (&thread_current ()->suppl_page_table, delete_suppl_page);
+  lock_release (&thread_current ()->suppl_page_lock);
+  lock_release (&lock);
   for (searcher = PHYS_BASE; *searcher != 0; --searcher) ;
   searcher++;
   for (ofs = 0; 
@@ -283,18 +305,19 @@ handle_sys_create (struct intr_frame *f)
 	f->eax = false;
       else
 	{
+	  lock_acquire (&filesys_lock);
 	  d = dir_open_root ();
-	  if (dir_lookup (d, file_name, &inode))
+	  if (dir_lookup (d, file_name, &inode)) 
 	    {
 	      f->eax = false;
 	    }
 	  else
 	    {
-	      lock_acquire (&filesys_lock);
+	      d = dir_open_root ();
 	      filesys_create (file_name, ARG2);
-	      lock_release (&filesys_lock);
+	      dir_close (d);
 	    }
-	  dir_close (d);
+	  lock_release (&filesys_lock);
 	}
     }
   free (file_name);
@@ -308,6 +331,7 @@ handle_sys_open (struct intr_frame *f)
   char *file_name;
   struct file_descriptor * file_descriptor, *last;
   struct list *list;
+  struct dir *d;
   ARG0 = *(uint32_t *) (f->esp + (sizeof (uint32_t)));
 
   if (ARG0 == 0)
@@ -317,7 +341,9 @@ handle_sys_open (struct intr_frame *f)
     }
   file_name = read_string (ARG0);
   lock_acquire (&filesys_lock);
+  d = dir_open_root ();
   file = filesys_open (file_name);
+  dir_close (d);
   lock_release (&filesys_lock);
   if (file != NULL)
     {
@@ -555,7 +581,7 @@ handle_sys_remove (struct intr_frame *f)
 {
   uint32_t fname_ptr;
   fname_ptr = *(uint32_t *) (f->esp + (sizeof (uint32_t)));
-
+  struct dir *d;
   char *file_name;
   int i;
 
@@ -567,7 +593,9 @@ handle_sys_remove (struct intr_frame *f)
 	break;
     }
   lock_acquire (&filesys_lock);
+  d = dir_open_root ();
   f->eax = filesys_remove (file_name);
+  dir_close (d);
   lock_release (&filesys_lock);
   free (file_name);
 }
@@ -586,15 +614,15 @@ handle_sys_mmap (struct intr_frame *f)
 
   struct hash_elem *e;
   struct suppl_page *s = malloc (sizeof (struct suppl_page));
-  s->addr = (void *) pg_round_down(data_ptr);
+  s->addr = (void *) pg_round_down((void *) data_ptr);
   e = hash_find (&thread_current()->suppl_page_table,
 		 &s->hash_elem);
 
   if (!file || !data_ptr || data_ptr <= 0x08048000
-      || check_mmap_region (data_ptr) 
-      || check_mmap_region (data_ptr + file_length (file))
-      || data_ptr != pg_round_down (data_ptr)
-      || data_ptr >= pg_round_down (f->esp)
+      || check_mmap_region ((void *) data_ptr) 
+      || check_mmap_region ((void *) (data_ptr + file_length (file)))
+      || (void *) data_ptr != pg_round_down ((void *) data_ptr)
+      || (void *) data_ptr >= pg_round_down ((void *) f->esp)
       || e)
     {
       f->eax = -1;
@@ -628,13 +656,13 @@ write_back_mmap (struct mmap_region *m)
   off_t cur;
   struct hash_elem *e;
 
-  for (cur = 0; cur <= file_size; cur += PGSIZE)
+  for (cur = 0; cur <= (off_t) file_size; cur += (off_t) PGSIZE)
     {
       uint32_t write_bytes = (file_size - cur) > PGSIZE ? PGSIZE : (file_size - cur);
-      if (pagedir_is_dirty (thread_current ()->pagedir, m->ptr + cur))
+      if (pagedir_is_dirty (thread_current ()->pagedir, (void *) m->ptr + cur))
 	{
 	  lock_acquire (&filesys_lock);
-	  if (file_write_at (f, m->ptr + cur, write_bytes, cur)
+	  if (file_write_at (f, (void *) m->ptr + cur, write_bytes, cur)
 	      != (int) write_bytes)
 	    {
 	    }

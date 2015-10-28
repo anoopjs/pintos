@@ -237,6 +237,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
   struct file *file = NULL;
   off_t file_ofs;
   bool success = false;
+  struct dir *d;
   int i;
   char * f_name, * brkt;
 
@@ -248,7 +249,11 @@ load (const char *file_name, void (**eip) (void), void **esp)
   process_activate ();
 
   /* Open executable file. */
+  lock_acquire (&filesys_lock);
+  d = dir_open_root ();
   file = filesys_open (f_name);
+  dir_close (d);
+  lock_release (&filesys_lock);
   if (file == NULL) 
     {
       printf ("load: %s: open failed\n", f_name);
@@ -257,6 +262,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
   thread_current ()->file = file;
   file_deny_write (file);
 
+  lock_acquire (&filesys_lock);
   /* Read and verify executable header. */
   if (file_read (file, &ehdr, sizeof ehdr) != sizeof ehdr
       || memcmp (ehdr.e_ident, "\177ELF\1\1\1", 7)
@@ -267,8 +273,10 @@ load (const char *file_name, void (**eip) (void), void **esp)
       || ehdr.e_phnum > 1024) 
     {
       printf ("load: %s: error loading executable\n", f_name);
+      lock_release (&filesys_lock);
       goto done; 
     }
+  lock_release (&filesys_lock);
 
   /* Read program headers. */
   file_ofs = ehdr.e_phoff;
@@ -278,10 +286,16 @@ load (const char *file_name, void (**eip) (void), void **esp)
 
       if (file_ofs < 0 || file_ofs > file_length (file))
         goto done;
+
+      lock_acquire (&filesys_lock);
       file_seek (file, file_ofs);
 
       if (file_read (file, &phdr, sizeof phdr) != sizeof phdr)
-        goto done;
+	{
+	  lock_release (&filesys_lock);
+	  goto done;
+	}
+      lock_release (&filesys_lock);
       file_ofs += sizeof phdr;
       switch (phdr.p_type) 
         {
