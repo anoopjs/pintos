@@ -1,3 +1,4 @@
+#include <bitmap.h>
 #include "userprog/syscall.h"
 #include "userprog/process.h"
 #include "filesys/directory.h"
@@ -130,6 +131,12 @@ void
 delete_suppl_page (struct hash_elem *e, void *aux UNUSED)
 {
   struct suppl_page *sp = hash_entry (e, struct suppl_page, hash_elem);
+  if (sp->swapped)
+    {
+      lock_acquire (&bitmap_lock);
+      bitmap_set_multiple (swap_map, sp->swap_idx, 1, false);
+      lock_release (&bitmap_lock);
+    }
   free (sp);
 }
 
@@ -183,13 +190,14 @@ handle_sys_exit (struct intr_frame *f, int status)
       if (frame->owner == thread_current () && !frame->pin)
 	{
 	  list_remove (&frame->elem);
+	  free (frame);
 	  break;
 	}
     }
+  lock_release (&lock);
   lock_acquire (&thread_current ()->suppl_page_lock);
   hash_destroy (&thread_current ()->suppl_page_table, delete_suppl_page);
   lock_release (&thread_current ()->suppl_page_lock);
-  lock_release (&lock);
   for (searcher = PHYS_BASE; *searcher != 0; --searcher) ;
   searcher++;
   for (ofs = 0; 
@@ -206,6 +214,7 @@ handle_sys_exit (struct intr_frame *f, int status)
 	break;
     }
   free (buffer);
+
   buffer = strtok_r (thread_current ()->name, " ", &brkt);
   exit_message_size = sizeof (char) * (strlen(buffer) + 15);
   exit_message = malloc (exit_message_size);
@@ -219,12 +228,12 @@ handle_sys_exit (struct intr_frame *f, int status)
   f->eax = status;
   thread_current ()->exit_status = status;
 
-  struct child_status *cs = malloc (sizeof (struct child_status));
-  cs->tid = thread_current ()->tid;
-  cs->status = status;
-  if (&thread_current ()->parent)
-    list_push_front (&thread_current ()->parent->child_status_list,
-		     &cs->elem);
+  /* struct child_status *cs = malloc (sizeof (struct child_status)); */
+  /* cs->tid = thread_current ()->tid; */
+  /* cs->status = status; */
+  /* if (&thread_current ()->parent) */
+  /*   list_push_front (&thread_current ()->parent->child_status_list, */
+  /* 		     &cs->elem); */
 
   thread_exit ();
 }
@@ -305,7 +314,7 @@ handle_sys_create (struct intr_frame *f)
 	f->eax = false;
       else
 	{
-	  lock_acquire (&filesys_lock);
+	  //	  lock_acquire (&filesys_lock);
 	  d = dir_open_root ();
 	  if (dir_lookup (d, file_name, &inode)) 
 	    {
@@ -317,7 +326,7 @@ handle_sys_create (struct intr_frame *f)
 	      filesys_create (file_name, ARG2);
 	      dir_close (d);
 	    }
-	  lock_release (&filesys_lock);
+	  //	  lock_release (&filesys_lock);
 	}
     }
   free (file_name);

@@ -176,9 +176,7 @@ page_fault (struct intr_frame *f)
 	      struct suppl_page *page = hash_entry (e, struct suppl_page, hash_elem);
 	      if ((write && page->writable) || !write)
 		{
-		  //lock_acquire (&lock);
 		  force_load_page (page);
-		  //lock_release (&lock);
 		}
 	      else
 		{
@@ -226,14 +224,10 @@ page_fault (struct intr_frame *f)
 		  handle_sys_exit (f, -1);
 		}
 	    }
+	  free (s);
 	}
       else
 	{
-	  printf ("Page fault at %p: %s error %s page in %s context.\n",
-		  fault_addr,
-		  not_present ? "not present" : "rights violation",
-		  write ? "writing" : "reading",
-		  user ? "user" : "kernel");
 	  handle_sys_exit (f, -1);
 	}
     }

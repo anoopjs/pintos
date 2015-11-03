@@ -56,8 +56,9 @@ frame_get_page (enum palloc_flags flags)
 	  swap_size = block_size (block) * 512;
 	  swap_map = bitmap_create (swap_size / PGSIZE);
 	}
-      
+      lock_acquire (&bitmap_lock);
       page_idx = bitmap_scan_and_flip (swap_map, 0, 1, false);
+      lock_release (&bitmap_lock);
       if (page_idx != BITMAP_ERROR)
 	{
 	  int i;
@@ -69,9 +70,9 @@ frame_get_page (enum palloc_flags flags)
 	  lock_acquire (&lock);
 	  struct frame *f = get_lru_frame ();
 	  f->pin = true;
-	  lock_release (&lock);
 	  t = f->owner;
 	  f->owner = thread_current ();
+	  
 	  s_page->addr = (void *) pg_round_down (f->uaddr);
 	  lock_acquire (&filesys_lock);
 	  for (i = 0; i < 8; i++)
@@ -98,10 +99,12 @@ frame_get_page (enum palloc_flags flags)
 		    }
 		}
 	      else
-		;
-	      //printf("No Page hash found for %x! \n", s_page->addr);
+		printf("No Page hash found for %x! \n", s_page->addr);
 	    }
+	  free (s_page);
 	  lock_release (&t->suppl_page_lock);
+	  lock_release (&lock);
+	  
 	  memset (f->kaddr, 0, PGSIZE);
 	  f->pin = false;
 	  lock_acquire (&lock);
@@ -145,7 +148,7 @@ void frame_free_page (void *page)
 	  break;
 	}
     }
-  memset (page, 0xcc, PGSIZE);
+
   palloc_free_page (page);
   lock_release (&lock);
 }

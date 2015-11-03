@@ -104,10 +104,10 @@ process_wait (tid_t child_tid)
       struct thread *t = list_entry (e, struct thread, allelem);
       if (t->tid == child_tid)
       	{
-  	  sema_down (&t->one);
+	  sema_down (&t->one);
   	  status = t->exit_status;
-  	  sema_up (&t->two);
-  	  sema_down (&t->one);
+	  sema_up (&t->two);
+	  sema_down (&t->one);
   	  return status;
       	}
     }
@@ -121,10 +121,6 @@ process_exit (void)
   struct thread *cur = thread_current ();
   uint32_t *pd;
 
-  sema_up (&cur->one);
-  sema_down (&cur->two);
-  file_close (cur->file);
-  
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
   pd = cur->pagedir;
@@ -141,6 +137,9 @@ process_exit (void)
       pagedir_activate (NULL);
       pagedir_destroy (pd);
     }
+  sema_up (&cur->one);
+  sema_down (&cur->two);
+  file_close (cur->file);
 }
 
 /* Sets up the CPU for running user code in the current
@@ -249,11 +248,11 @@ load (const char *file_name, void (**eip) (void), void **esp)
   process_activate ();
 
   /* Open executable file. */
-  lock_acquire (&filesys_lock);
-  d = dir_open_root ();
+  //  lock_acquire (&filesys_lock);
+  //  d = dir_open_root ();
   file = filesys_open (f_name);
-  dir_close (d);
-  lock_release (&filesys_lock);
+  //  dir_close (d);
+  //  lock_release (&filesys_lock);
   if (file == NULL) 
     {
       printf ("load: %s: open failed\n", f_name);

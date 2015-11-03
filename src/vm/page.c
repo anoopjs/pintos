@@ -54,7 +54,9 @@ force_load_page (struct suppl_page *s)
 	  block_read (block, s->swap_idx * PGSIZE / 512 + i, kpage + i * 512);
 	}
       lock_release (&filesys_lock);
+      lock_acquire (&bitmap_lock);
       bitmap_set_multiple (swap_map, s->swap_idx, 1, false);
+      lock_release (&bitmap_lock);
       s->swapped = false;
     }
 
