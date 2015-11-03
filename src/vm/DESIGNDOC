@@ -62,19 +62,49 @@ Anoop J S <js_anoop@yahoo.co.in>
 >> A2: In a few paragraphs, describe your code for locating the frame,
 >> if any, that contains the data of a given page.
 
+When we start a new process, instead of loading all the segments into
+memory, we insert supplimental page correspoinding to that address. When
+we memory map a file, in the thread structure, we store the memory location 
+and max boundary for that file. Also when we swap a frame, we insert a supplimentary
+page in the thread's supplimental page table which contain details including the 
+swap index.
+
+So when a page fault occurs, we see if there already a supplimental page entry for the rounded fault address. If there is we force load the page to memory. Otherwise, if it is a valid address, that would mean that it is either a mmap address or the stack is growing. For both the case, we insert new supplimental page entry, and force load it to memory.
+
+The function that handles force loading will check whether it the page corresponding is of segment page, mmap page or stack page. if it is segment page or mmap page, we load from the corresponding file. If the boolean 'swapped' was set, we load from the swap disk. Otherwise that would mean the stack is growing and we give out a zero filled page.
+
 >> A3: How does your code coordinate accessed and dirty bits between
 >> kernel and user virtual addresses that alias a single frame, or
 >> alternatively how do you avoid the issue?
+
+In my implementation, I mostly donot use kernel virtual address anywhere except for in frame structure. All addresses stored are done using user virtual addresses. When a page fault occurs we check if it was a valid user address. Thus we avoid any confusion regarding this. 
 
 ---- SYNCHRONIZATION ----
 
 >> A4: When two user processes both need a new frame at the same time,
 >> how are races avoided?
 
+For all operation done on the frame table, the thread has to obtain lock before performing them. While we are obtaining LRU frame, or when we are adding a new frame table entry or when we are removing a frame table entry, the thread has to obtain the said lock. Thus we avoid any race condition. Also we have locks corresponding to supplimental page tables of each threads such that any modifying to a thread's supplimental page is also done atomically.
+
+
 ---- RATIONALE ----
 
 >> A5: Why did you choose the data structure(s) that you did for
 >> representing virtual-to-physical mappings?
+
+The frame entry stores the following details.
+* owner, which is the current owner thread of that frame. This is required so that
+  the new owner can invalidate the user address of previous owner.
+* pin, whether this frame is pinned or not. This is required so that a frame will not
+  be swapped while a file read operation undergoing will have to use that frame.
+* uaddr, the user address corresponding to that frame. This is so that after a page is 
+  swapped, the new owner of the page can invalidate the user address from previous
+  owner's page directory.
+* kaddr, which is the kernel virtual address of the page.
+
+  The frame table is implemented as a list. This is so that the LRU algorithm can be 
+   run faster, since LRU frame is frequently required.
+
 
 		       PAGING TO AND FROM DISK
 		       =======================
@@ -85,18 +115,41 @@ Anoop J S <js_anoop@yahoo.co.in>
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
 
+-- struct bitmap *swap_map // the global bitmap for swap.
+-- struct lock bitmap_lock // the lock for accessing swap_map.
+-- struct block *block // the global block struct.
+
 ---- ALGORITHMS ----
 
 >> B2: When a frame is required but none is free, some frame must be
 >> evicted.  Describe your code for choosing a frame to evict.
 
+When no more frame is free, palloc_get_page will return NULL. We wil fetch the LRU
+frame from the frame table, which is the frame at the end of the list. Then we will chceck if the page table entry is marked as dirty of this frame. We will obtain
+a free region in the swap block using the bitmap swap_map. We will copy the content of
+this page to the swap block obtained. After that we will get the supplimental page
+entry of the previous user virtual address of that frame. We will modify the
+supplimental page to include details of swapping. After that we will remove the user
+virtual address from the page directory of previous owner. Eviction will be done if the
+page table entry was found to be dirty.
+
 >> B3: When a process P obtains a frame that was previously used by a
 >> process Q, how do you adjust the page table (and any other data
 >> structures) to reflect the frame Q no longer has?
 
+We first remove the page table entry from Q's pagedir entry for the user virtual
+address of the frame. After that the current owner of the frame will be updated
+to current thread. We will then insert a new entry to current thread's page directory
+with kernel virtual address of the obtained frame. Finally we will update the
+user virtual address of the frame entry with the new user virtual address.
+
 >> B4: Explain your heuristic for deciding whether a page fault for an
 >> invalid virtual address should cause the stack to be extended into
 >> the page that faulted.
+
+We can allow the stack to grow by 32 bytes at a time since PUSHA instruction requires
+an access of 32 bytes below the stack pointer. Also we shouldn't let the stack to grow
+beyond 8MB.
 
 ---- SYNCHRONIZATION ----
 
@@ -105,21 +158,42 @@ Anoop J S <js_anoop@yahoo.co.in>
 >> textbook for an explanation of the necessary conditions for
 >> deadlock.)
 
+We use a boolean pin in frame table entry to denote whether a frame is 
+currently being evicted or not. Also we have locks put in place which has to
+be acquired whenever a thread modifies frame table, supplimental page table
+or the block swap device.
+
 >> B6: A page fault in process P can cause another process Q's frame
 >> to be evicted.  How do you ensure that Q cannot access or modify
 >> the page during the eviction process?  How do you avoid a race
 >> between P evicting Q's frame and Q faulting the page back in?
+
+When an eviction beings, the pin boolean of the frame table will be set to
+true. So when another thread is running the LRU function to get the Least
+Recently Used frame, it will ignore those frames whose pin boolean is set to
+true. Also the frame table lock, will also prevent two threads from one acquring
+a frame entry and another force loading the same frame from swap.
 
 >> B7: Suppose a page fault in process P causes a page to be read from
 >> the file system or swap.  How do you ensure that a second process Q
 >> cannot interfere by e.g. attempting to evict the frame while it is
 >> still being read in?
 
+We have a global file system lock in place which will prevent such race conditions
+regarding file system operations. Also this will not occur due to the pinning mechanism
+we have put in place.
+
 >> B8: Explain how you handle access to paged-out pages that occur
 >> during system calls.  Do you use page faults to bring in pages (as
 >> in user programs), or do you have a mechanism for "locking" frames
 >> into physical memory, or do you use some other design?  How do you
 >> gracefully handle attempted accesses to invalid virtual addresses?
+
+We will manually force load the swapped out pages into the memory before file operation and prevent them being swapped out by enabling pinning in place.
+
+We will call the exit system call with -1 error code when an invalid virtual address is
+encountered. The page destroy function in process_exit function will free all the pages
+associated with that thread thus preventing any leak.
 
 ---- RATIONALE ----
 
@@ -130,6 +204,8 @@ Anoop J S <js_anoop@yahoo.co.in>
 >> where your design falls along this continuum and why you chose to
 >> design it this way.
 
+I have used locks for file system access, frame table modification, block device access, supplimental page modification. Thus I can confidently say that my design fall along with the one that allows high parallelism. With enough time spent on this Project 3, I was able to diminish most of the possible deadlock situations possible.
+
 			 MEMORY MAPPED FILES
 			 ===================
 
@@ -139,14 +215,37 @@ Anoop J S <js_anoop@yahoo.co.in>
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
 
+-- struct thread
+   struct list mmap_regions // the list to store the mmap regions associated with that
+                               thread.
+
+-- struct mmap_region
+   uint32_t ptr // the address to which file is mapped to it.
+   int mmap_id // the mmap id associated with that memory mapped file.
+   struct file *file // file pointer of the memory mapped file.
+
 ---- ALGORITHMS ----
 
 >> C2: Describe how memory mapped files integrate into your virtual
 >> memory subsystem.  Explain how the page fault and eviction
 >> processes differ between swap pages and other pages.
 
+   When a page fault occurs, we look whether there is any supplimental page entry
+   corresponding to that address. If there is not, then we will check if that address
+   falls into a memory mapped area. If it is, then we will insert a supplimental page
+   for that address and force loads that page.
+
+   For force loading we will get a new frame. In swap pages, we read data from the swap
+   block device. But for memory mapped pages, we will instead read data from the file
+   pointer associated with that mmap_region entry.
+
 >> C3: Explain how you determine whether a new file mapping overlaps
 >> any existing segment.
+
+   Whenever a new memory mapping takes place, we check if the address region required
+   for this memory mappin falls to already mapped regions using the mmap_regions list 
+   associated with each thread. We will check with base address and the file size of
+   file pointer in the mmap_region entry.
 
 ---- RATIONALE ----
 
@@ -156,6 +255,12 @@ Anoop J S <js_anoop@yahoo.co.in>
 >> that much of their implementation can be shared.  Explain why your
 >> implementation either does or does not share much of the code for
 >> the two situations.
+
+   My code does share code for the two situations. When a page fault occurs for both
+   situations, the function force_load_page is being called. For both these situations
+   the codes for obtaining a new frame, and finally installing the kernel and user
+   virtual address into the thread's page directory is the same. Only code that differs
+   is the code that fetches data from either the mmap file or the swap disk.
 
 			   SURVEY QUESTIONS
 			   ================
