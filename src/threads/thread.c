@@ -101,13 +101,6 @@ thread_init (void)
   init_thread (initial_thread, "main", PRI_DEFAULT);
   initial_thread->status = THREAD_RUNNING;
   list_init (&initial_thread->donate_list);
-  list_init (&initial_thread->child_status_list);
-
-  lock_init (&initial_thread->suppl_page_lock);
-  /* hash_init (&initial_thread->suppl_page_table, */
-  /* 	     suppl_page_hash, suppl_page_less, NULL); */
-
-  initial_thread->parent == NULL;
   initial_thread->waiting_for_lock = NULL;
   initial_thread->waiting_for_semaphore = NULL;
   initial_thread->donated_by = NULL;
@@ -166,12 +159,12 @@ thread_tick (void)
   if (timer_ticks () % 4 == 0 && thread_mlfqs)
     {
       for (e = list_begin (&all_list); e != list_end (&all_list);
-  	   e = list_next (e))
-  	{
-  	  thread = list_entry (e, struct thread, allelem);
-  	  if (thread != idle_thread)
-  	    thread->priority = calculate_new_priority (thread);
-  	}
+	   e = list_next (e))
+	{
+	  thread = list_entry (e, struct thread, allelem);
+	  if (thread != idle_thread)
+	    thread->priority = calculate_new_priority (thread);
+	}
     }
 
   if (timer_ticks () % TIMER_FREQ == 0
@@ -179,21 +172,21 @@ thread_tick (void)
     {
       ready_threads = list_size (&ready_list);
       if (t != idle_thread)
-  	ready_threads++;
+	ready_threads++;
 
       load_avg = add (mul (div (fixed (59), fixed (60)), load_avg),
        		      mul_integer (div (fixed (1), fixed (60)), ready_threads));
 
       for (e = list_begin (&all_list); e != list_end (&all_list);
-  	   e = list_next (e))
-  	{
-  	  thread = list_entry (e, struct thread, allelem);
+	   e = list_next (e))
+	{
+	  thread = list_entry (e, struct thread, allelem);
 	  
-  	  thread->recent_cpu =
-  	    add_integer (mul (div (mul_integer (load_avg, 2)
-  				   , add_integer (mul_integer (load_avg, 2), 1))
-  			      , thread->recent_cpu), thread->nice);
-  	}
+	  thread->recent_cpu = 
+	    add_integer (mul (div (mul_integer (load_avg, 2)
+				   , add_integer (mul_integer (load_avg, 2), 1))
+			      , thread->recent_cpu), thread->nice);
+	}
     }
   /* Enforce preemption. */
   if (++thread_ticks >= TIME_SLICE)
@@ -259,25 +252,17 @@ thread_create (const char *name, int priority,
   sf->eip = switch_entry;
   sf->ebp = 0;
 
-  t->parent = thread_current ();;
-
   list_init (&(t->donate_list));
   list_init (&(t->file_descriptors));
-  list_init (&(t->mmap_regions));
-  list_init (&(t->child_status_list));
-
   t->waiting_for_lock = NULL;
   t->waiting_for_semaphore = NULL;
   t->donated_by = NULL;
   t->nice = thread_get_nice ();
-  //  t->recent_cpu = thread_get_recent_cpu ();
+  t->recent_cpu = thread_get_recent_cpu ();
 
-  lock_init (&t->suppl_page_lock);
   sema_init (&t->one, 0);
   sema_init (&t->two, 0);
   sema_init (&t->load, 0);
-  hash_init (&t->suppl_page_table, suppl_page_hash, suppl_page_less, NULL);
-
   /* Add to run queue. */
   thread_unblock (t);
   return tid;
@@ -430,7 +415,7 @@ thread_yield (void)
   ASSERT (!intr_context ());
   old_level = intr_disable ();
   if (cur != idle_thread) 
-    thread_push_priority (&ready_list, &cur->elem);
+      thread_push_priority (&ready_list, &cur->elem);
   cur->status = THREAD_READY;
   schedule ();
   intr_set_level (old_level);

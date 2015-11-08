@@ -6,8 +6,6 @@
 #include <stdint.h>
 #include "threads/fixed-point.h"
 #include "threads/synch.h"
-#include <hash.h>
-#include "vm/page.h"
 /* States in a thread's life cycle. */
 enum thread_status
   {
@@ -95,12 +93,10 @@ struct thread
     int donated_priority;
     struct thread * donated_by;
     struct lock * waiting_for_lock;
-    struct lock suppl_page_lock;
     struct semaphore * waiting_for_semaphore;
     struct list donate_list;
-    struct list child_status_list;
     struct list_elem allelem;           /* List element for all threads list. */
-    struct thread *parent;
+
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
     struct list_elem sema_elem;         /* List element for semaphore waiting list. */
@@ -117,11 +113,8 @@ struct thread
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /* Page directory. */
-    struct hash suppl_page_table;
-    struct list mmap_regions;
 #endif
-    uint32_t esp;
-    
+
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */
   };

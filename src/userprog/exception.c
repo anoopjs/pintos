@@ -1,15 +1,9 @@
 #include "userprog/exception.h"
 #include <inttypes.h>
 #include <stdio.h>
-#include <string.h>
 #include "userprog/gdt.h"
-#include "userprog/process.h"
 #include "threads/interrupt.h"
 #include "threads/thread.h"
-#include "threads/vaddr.h"
-#include "threads/malloc.h"
-#include "vm/page.h"
-#include "vm/frame.h"
 
 /* Number of page faults processed. */
 static long long page_fault_cnt;
@@ -35,7 +29,6 @@ static void page_fault (struct intr_frame *);
 void
 exception_init (void) 
 {
-
   /* These exceptions can be raised explicitly by a user program,
      e.g. via the INT, INT3, INTO, and BOUND instructions.  Thus,
      we set DPL==3, meaning that user programs are allowed to
@@ -133,7 +126,7 @@ page_fault (struct intr_frame *f)
   bool write;        /* True: access was write, false: access was read. */
   bool user;         /* True: access by user, false: access by kernel. */
   void *fault_addr;  /* Fault address. */
-  struct mmap_region * m;
+
   /* Obtain faulting address, the virtual address that was
      accessed to cause the fault.  It may point to code or to
      data.  It is not necessarily the address of the instruction
@@ -142,6 +135,9 @@ page_fault (struct intr_frame *f)
      [IA32-v3a] 5.15 "Interrupt 14--Page Fault Exception
      (#PF)". */
   asm ("movl %%cr2, %0" : "=r" (fault_addr));
+
+  if ((uint32_t) f->esp > (uint32_t) 0xc0000000 || ((uint32_t) f->esp) < 0x08048000)
+    handle_sys_exit (f, -1);
 
   /* Turn interrupts back on (they were only off so that we could
      be assured of reading CR2 before it changed). */
@@ -155,93 +151,16 @@ page_fault (struct intr_frame *f)
   write = (f->error_code & PF_W) != 0;
   user = (f->error_code & PF_U) != 0;
 
-  int esp = f->esp;
-  if ((f->esp > PHYS_BASE || f->esp < 0x08048000)
-      && thread_current ()->esp <= PHYS_BASE
-      && thread_current ()->esp >= 0x08048000)
-    esp = thread_current ()->esp;
-
-  if (user || (uint32_t) f->esp > (uint32_t) PHYS_BASE
-      || ((uint32_t) f->esp) < 0x08048000)
-    {
-      if (fault_addr < PHYS_BASE && fault_addr >= 0x08048000)
-	{
-	  struct hash_elem *e;
-	  struct suppl_page *s = malloc (sizeof (struct suppl_page));
-	  s->addr = (void *) pg_round_down(fault_addr);
-	  e = hash_find (&thread_current()->suppl_page_table,
-			 &s->hash_elem);
-	  if (e)
-	    {
-	      struct suppl_page *page = hash_entry (e, struct suppl_page, hash_elem);
-	      if ((write && page->writable) || !write)
-		{
-		  force_load_page (page);
-		}
-	      else
-		{
-		  handle_sys_exit (f, -1);
-		}
-	    }
-	  else
-	    {
-	      if ((m = check_mmap_region (fault_addr)) != NULL)
-		{
-		  struct suppl_page *stack_page = malloc (sizeof (struct suppl_page));
-		  stack_page->addr = (void *) pg_round_down(fault_addr);
-		  stack_page->writable = true;
-		  stack_page->page_type = mmap_page;
-		  stack_page->file = m->file;
-		  stack_page->file_page = pg_round_down (fault_addr - m->ptr);
-		  stack_page->read_bytes =
-		    ((file_length (m->file) - stack_page->file_page) > PGSIZE)
-		    ? PGSIZE : (file_length (m->file) - stack_page->file_page);
-		  stack_page->zero_bytes =
-		    PGSIZE - stack_page->read_bytes;
-		  stack_page->swapped = false;
-		  lock_acquire (&thread_current()->suppl_page_lock);
-		  hash_insert (&thread_current ()->suppl_page_table,
-		  	   &stack_page->hash_elem);
-		  lock_release (&thread_current()->suppl_page_lock);
-		  force_load_page (stack_page);
-		}
-	      else if (fault_addr >= (pg_round_up(esp) - 4096))
-		{
-		  struct suppl_page *s_page = malloc (sizeof (struct suppl_page));
-		  s_page->addr = (void *) pg_round_down(fault_addr);
-		  s_page->writable = true;
-		  s_page->page_type = stack_page;
-		  s_page->swapped = false;
-		  lock_acquire (&thread_current ()->suppl_page_lock);
-		  hash_insert (&thread_current ()->suppl_page_table,
-			   &s_page->hash_elem);
-		  lock_release (&thread_current ()->suppl_page_lock);
-		  force_load_page (s_page);		  
-		}
-	      else 
-		{
-
-		  handle_sys_exit (f, -1);
-		}
-	    }
-	  free (s);
-	}
-      else
-	{
-	  handle_sys_exit (f, -1);
-	}
-    }
-  else
-    {
-      /* To implement virtual memory, delete the rest of the function
-	 body, and replace it with code that brings in the page to
-	 which fault_addr refers. */
-      printf ("Page fault at %p: %s error %s page in %s context.\n",
-              fault_addr,
-              not_present ? "not present" : "rights violation",
-              write ? "writing" : "reading",
-              user ? "user" : "kernel");
-      kill (f);
-    }
+  if (user)
+    handle_sys_exit (f, -1);
+  /* To implement virtual memory, delete the rest of the function
+     body, and replace it with code that brings in the page to
+     which fault_addr refers. */
+  printf ("Page fault at %p: %s error %s page in %s context.\n",
+          fault_addr,
+          not_present ? "not present" : "rights violation",
+          write ? "writing" : "reading",
+          user ? "user" : "kernel");
+  kill (f);
 }
 

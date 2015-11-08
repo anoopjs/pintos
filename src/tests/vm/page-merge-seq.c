@@ -12,8 +12,7 @@
    file system that had 126 direct blocks each pointing to a
    single disk sector.  We could raise it now. */
 #define CHUNK_SIZE (126 * 512)
-#define CHUNK_CNT 16                           /* Number of chunks. */
-
+#define CHUNK_CNT 16                            /* Number of chunks. */
 #define DATA_SIZE (CHUNK_CNT * CHUNK_SIZE)      /* Buffer size. */
 
 unsigned char buf1[DATA_SIZE], buf2[DATA_SIZE];

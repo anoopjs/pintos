@@ -1,29 +1,23 @@
-#include <bitmap.h>
 #include "userprog/syscall.h"
 #include "userprog/process.h"
 #include "filesys/directory.h"
 #include "filesys/filesys.h"
 #include "filesys/file.h"
+#include <stdio.h>
 #include <syscall-nr.h>
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 #include "threads/init.h"
-#include "threads/palloc.h"
 #include "filesys/off_t.h"
 #include "filesys/inode.h"
 #include "threads/malloc.h"
+#include <string.h>
 #include "devices/shutdown.h"
 #include "devices/input.h"
-#include "userprog/pagedir.h"
-#include "vm/page.h"
-#include "vm/frame.h"
 
 char *read_string (uint32_t);
 struct file *get_file_from_handle (int);
-struct mmap_region *check_mmap_region (void *);
-void write_back_mmap (struct mmap_region *);
-void delete_suppl_page (struct hash_elem *, void *);
 void handle_sys_exit (struct intr_frame *, int);
 void handle_sys_create (struct intr_frame *);
 void handle_sys_open (struct intr_frame *);
@@ -36,8 +30,6 @@ void handle_sys_wait (struct intr_frame *);
 void handle_sys_seek (struct intr_frame *);
 void handle_sys_tell (struct intr_frame *);
 void handle_sys_remove (struct intr_frame *);
-void handle_sys_mmap (struct intr_frame *);
-void handle_sys_munmap (struct intr_frame *);
 static void syscall_handler (struct intr_frame *);
 
 struct file_descriptor
@@ -46,7 +38,6 @@ struct file_descriptor
   struct file *file;
   struct list_elem elem;
 };
-
 /* Reads a byte at user virtual address UADDR.
    UADDR must be below PHYS_BASE.
    Returns the byte value if successful, -1 if a segfault
@@ -55,7 +46,7 @@ static int
 get_user (struct intr_frame *f, const uint8_t *uaddr)
 {
   int result;
-  thread_current ()->esp = (uint32_t) f->esp; 
+
   if ((uint32_t) uaddr <= (uint32_t) PHYS_BASE)
     {
       asm ("movl $1f, %0; movzbl %1, %0; 1:"
@@ -73,7 +64,6 @@ static bool
 put_user (struct intr_frame *f, uint8_t *udst, uint8_t byte)
 {
   int error_code;
-  thread_current ()->esp = (uint32_t) f->esp;
   if ((uint32_t) udst <= (uint32_t) PHYS_BASE)
     {
       asm ("movl $1f, %0; movb %b2, %1; 1:"
@@ -97,79 +87,31 @@ char *read_string (uint32_t addr)
     }
   return file_name;
 }
-
-
-struct mmap_region *
-check_mmap_region (void *fault_addr)
-{
-  struct list *list = &thread_current ()->mmap_regions;
-  struct list_elem *e;
-  struct mmap_region *m;
-
-  for (e = list_begin (list); e != list_end (list);
-       e = list_next (e))
-    {
-      m = list_entry (e, struct mmap_region, elem);
-      if (fault_addr >= (void *) m->ptr 
-	  && fault_addr <= (void *) (m->ptr + file_length(m->file))
-	  && file_length (m->file) != 0)
-	{
-	  return m;
-	}
-    }
-  return NULL;
-}
-
 void
 syscall_init (void) 
 {
-  lock_init (&filesys_lock);
   intr_register_int (0x30, 3, INTR_ON, syscall_handler, "syscall");
-}
-
-void
-delete_suppl_page (struct hash_elem *e, void *aux UNUSED)
-{
-  struct suppl_page *sp = hash_entry (e, struct suppl_page, hash_elem);
-  if (sp->swapped)
-    {
-      lock_acquire (&bitmap_lock);
-      bitmap_set_multiple (swap_map, sp->swap_idx, 1, false);
-      lock_release (&bitmap_lock);
-    }
-  free (sp);
 }
 
 void
 handle_sys_exit (struct intr_frame *f, int status)
 {
-  uint32_t *searcher, ARG0 = 0;
+  uint32_t *searcher, ARG0;
   int ofs, i;
   char *buffer, *exit_message, *brkt;
   size_t exit_message_size;
   struct list *list;
   struct list_elem *e;
   struct file_descriptor *cur;
-  struct mmap_region *m;
 
-  if (status == (int) NULL)
+  if (status == NULL)
     {
-      if ((void *) f->esp + (sizeof (uint32_t) * 2) > PHYS_BASE)
+      if (f->esp + (sizeof (uint32_t) * 2) > PHYS_BASE)
 	handle_sys_exit (f, -1);
       ARG0 = *(uint32_t *) (f->esp + (sizeof (uint32_t)));
     }
-
-  list = &thread_current ()->mmap_regions;
-  for (e = list_begin (list); e != list_end (list);)
-    {
-      m = list_entry (e, struct mmap_region, elem);
-      e = list_next (e);
-      write_back_mmap (m);
-      list_remove (&m->elem);
-      free (m);
-    }
-
   list = &(thread_current ()->file_descriptors);
+  
   for (e = list_begin (list); e != list_end (list);)
     {
       cur = list_entry (e, struct file_descriptor, elem);
@@ -179,25 +121,6 @@ handle_sys_exit (struct intr_frame *f, int status)
       free (cur);
     }
 
-
-  struct frame *frame;
-  lock_acquire (&lock);
-  list = &frame_table;
-  for (e = list_begin (list); e != list_end (list);
-       e = list_next (e))
-    {
-      frame = list_entry (e, struct frame, elem);
-      if (frame->owner == thread_current () && !frame->pin)
-	{
-	  list_remove (&frame->elem);
-	  free (frame);
-	  break;
-	}
-    }
-  lock_release (&lock);
-  lock_acquire (&thread_current ()->suppl_page_lock);
-  hash_destroy (&thread_current ()->suppl_page_table, delete_suppl_page);
-  lock_release (&thread_current ()->suppl_page_lock);
   for (searcher = PHYS_BASE; *searcher != 0; --searcher) ;
   searcher++;
   for (ofs = 0; 
@@ -214,7 +137,6 @@ handle_sys_exit (struct intr_frame *f, int status)
 	break;
     }
   free (buffer);
-
   buffer = strtok_r (thread_current ()->name, " ", &brkt);
   exit_message_size = sizeof (char) * (strlen(buffer) + 15);
   exit_message = malloc (exit_message_size);
@@ -227,14 +149,6 @@ handle_sys_exit (struct intr_frame *f, int status)
   free (exit_message);
   f->eax = status;
   thread_current ()->exit_status = status;
-
-  /* struct child_status *cs = malloc (sizeof (struct child_status)); */
-  /* cs->tid = thread_current ()->tid; */
-  /* cs->status = status; */
-  /* if (&thread_current ()->parent) */
-  /*   list_push_front (&thread_current ()->parent->child_status_list, */
-  /* 		     &cs->elem); */
-
   thread_exit ();
 }
 
@@ -272,10 +186,8 @@ handle_sys_write (struct intr_frame *f)
       file = get_file_from_handle ((int) ARG0);
       if (file == NULL)
 	handle_sys_exit (f, -1);
-
-      lock_acquire (&filesys_lock);
+      
       f->eax = file_write (file, buffer, ARG2);
-      lock_release (&filesys_lock);
     }
 
   free (buffer);
@@ -298,15 +210,14 @@ handle_sys_create (struct intr_frame *f)
       return;
     }
 
-  file_name = malloc (sizeof (char) * 101);
+  file_name = malloc (sizeof (char) * 100);
   for (i = 0; i < 100; i++)
     {
       file_name[i] = *(char *)(ARG1 + i);
       if (file_name[i] == '\0')
       	break;
     }
-  file_name[101] = '\0';
-  if (strlen (file_name) == 0 || strlen (file_name) == 100)
+  if (strlen (file_name) == 0)
     f->eax = false;
   else
     {
@@ -314,19 +225,16 @@ handle_sys_create (struct intr_frame *f)
 	f->eax = false;
       else
 	{
-	  //	  lock_acquire (&filesys_lock);
 	  d = dir_open_root ();
-	  if (dir_lookup (d, file_name, &inode)) 
+	  if (dir_lookup (d, file_name, &inode))
 	    {
 	      f->eax = false;
 	    }
 	  else
 	    {
-	      d = dir_open_root ();
 	      filesys_create (file_name, ARG2);
-	      dir_close (d);
 	    }
-	  //	  lock_release (&filesys_lock);
+	  dir_close (d);
 	}
     }
   free (file_name);
@@ -340,7 +248,6 @@ handle_sys_open (struct intr_frame *f)
   char *file_name;
   struct file_descriptor * file_descriptor, *last;
   struct list *list;
-  struct dir *d;
   ARG0 = *(uint32_t *) (f->esp + (sizeof (uint32_t)));
 
   if (ARG0 == 0)
@@ -349,11 +256,7 @@ handle_sys_open (struct intr_frame *f)
       return;
     }
   file_name = read_string (ARG0);
-  lock_acquire (&filesys_lock);
-  d = dir_open_root ();
   file = filesys_open (file_name);
-  dir_close (d);
-  lock_release (&filesys_lock);
   if (file != NULL)
     {
       file_descriptor = malloc (sizeof (struct file_descriptor));
@@ -384,40 +287,23 @@ void
 handle_sys_close (struct intr_frame *f)
 {
   uint32_t ARG0;
-  bool close = true;
   ARG0 = *(uint32_t *) (f->esp + (sizeof (uint32_t)));
 
   if (ARG0 < 2)
     handle_sys_exit (f, -1);
 
   struct thread *cur = thread_current ();
-  struct list *list, *l;
+  struct list *list = &cur->file_descriptors;
   struct file_descriptor *file_desc;
-  struct mmap_region *m;
-  struct list_elem *e,*d;
+  struct list_elem *e;
 
-  list = &cur->file_descriptors;
   for (e = list_begin (list); e != list_end (list);
        e = list_next (e))
     {
       file_desc = list_entry (e, struct file_descriptor, elem);
       if (file_desc->fd == (int) ARG0)
 	{
-	  l = &cur->mmap_regions;
-	  for (d = list_begin (l); d != list_end (l);
-	       d = list_next (d))
-	    {
-	      m = list_entry (d, struct mmap_region, elem);
-	      if (m->file == file_desc->file)
-		{
-		  close = false;
-		  break;
-		}
-	    }
-  
-	  if (close)
-	    file_close (file_desc->file);
-
+	  file_close (file_desc->file);
 	  list_remove (&file_desc->elem);
 	  f->eax = true;
 	  return;
@@ -441,20 +327,19 @@ get_file_from_handle (int fd)
       if (file_desc->fd == (int) fd)
 	{
 	  file = file_desc->file;
-	  return file;
+	  break;
 	}
     }
-  return NULL;
+  return file;
 }
 
 void
 handle_sys_read (struct intr_frame *f)
 {
   uint32_t fd, buffer, size;
-  fd     = *(uint32_t *) (f->esp + (sizeof (uint32_t)));
+  fd = *(uint32_t *) (f->esp + (sizeof (uint32_t)));
   buffer = *(uint32_t *) (f->esp + (sizeof (uint32_t)) * 2);
-  size   = *(uint32_t *) (f->esp + (sizeof (uint32_t) * 3));
-
+  size = *(uint32_t *) (f->esp + (sizeof (uint32_t)) * 3);
   int i;
   struct file *file = NULL;
 
@@ -470,20 +355,17 @@ handle_sys_read (struct intr_frame *f)
     {
       for (i = 0; i < (int) size; i++)
 	put_user (f, (void *) buffer + i, input_getc ());
-      f->eax = size;
     }
   else
-    {
-      lock_acquire (&filesys_lock);
-      f->eax = file_read (file, buffer_temp, size);
-      lock_release (&filesys_lock);
-    }
-
+    file_read (file, buffer_temp, size);
+  
   for (i = 0; i < (int) size; i++)
     {
       put_user (f, (void *) buffer + i, buffer_temp[i]);
     }
+
   free (buffer_temp);
+  f->eax = size;
 }
 
 void
@@ -536,9 +418,7 @@ handle_sys_exec (struct intr_frame *f)
     {
       struct thread *t = list_entry (e, struct thread, allelem);
       if (t->tid == child_tid)
-	{
-	  sema_down (&t->load);
-	}
+	sema_down (&t->load);
     } 
 
   free (cmd_line);
@@ -546,6 +426,7 @@ handle_sys_exec (struct intr_frame *f)
     f->eax = -1;
   else
     f->eax = child_tid;
+
 }
 
 void 
@@ -553,6 +434,7 @@ handle_sys_wait (struct intr_frame *f)
 {
   tid_t child_tid;
   child_tid = *(uint32_t *) (f->esp + (sizeof (uint32_t)));
+  
   f->eax = process_wait (child_tid);
 }
 
@@ -567,9 +449,7 @@ handle_sys_seek (struct intr_frame *f)
   if (file == NULL)
     f->eax = -1;
   else
-    {
-      file_seek (file, position);
-    }
+    file_seek (file, position);
 }
 
 void
@@ -590,7 +470,7 @@ handle_sys_remove (struct intr_frame *f)
 {
   uint32_t fname_ptr;
   fname_ptr = *(uint32_t *) (f->esp + (sizeof (uint32_t)));
-  struct dir *d;
+
   char *file_name;
   int i;
 
@@ -601,118 +481,8 @@ handle_sys_remove (struct intr_frame *f)
       if (file_name[i] == '\0')
 	break;
     }
-  lock_acquire (&filesys_lock);
-  d = dir_open_root ();
   f->eax = filesys_remove (file_name);
-  dir_close (d);
-  lock_release (&filesys_lock);
   free (file_name);
-}
-
-void
-handle_sys_mmap (struct intr_frame *f)
-{
-  uint32_t handle, data_ptr;
-  struct file *file;
-  struct list *list;
-  struct mmap_region *m, *last;
-
-  handle = *(uint32_t *) (f->esp + (sizeof (uint32_t)));
-  data_ptr = *(uint32_t *) (f->esp + 2 * (sizeof (uint32_t)));
-  file = get_file_from_handle (handle);
-
-  struct hash_elem *e;
-  struct suppl_page *s = malloc (sizeof (struct suppl_page));
-  s->addr = (void *) pg_round_down((void *) data_ptr);
-  e = hash_find (&thread_current()->suppl_page_table,
-		 &s->hash_elem);
-
-  if (!file || !data_ptr || data_ptr <= 0x08048000
-      || check_mmap_region ((void *) data_ptr) 
-      || check_mmap_region ((void *) (data_ptr + file_length (file)))
-      || (void *) data_ptr != pg_round_down ((void *) data_ptr)
-      || (void *) data_ptr >= pg_round_down ((void *) f->esp)
-      || e)
-    {
-      f->eax = -1;
-      return;
-    }
-  m = malloc (sizeof (struct mmap_region));
-  m->ptr = data_ptr;
-  m->file = file;
-
-  if (list_empty (&thread_current ()->mmap_regions))
-    {
-      m->mmap_id = 0;
-      list_push_back (&thread_current ()->mmap_regions, &m->elem);
-      f->eax = 0;
-    }
-  else
-    {
-      list = &(thread_current ()->mmap_regions);
-      last = list_entry (list_rbegin (list), struct mmap_region, elem);
-      m->mmap_id = last->mmap_id + 1;
-      list_push_back (list, &m->elem);
-      f->eax = m->mmap_id;
-    }
-}
-
-void
-write_back_mmap (struct mmap_region *m)
-{
-  struct file *f = m->file;
-  uint32_t file_size = file_length (f);
-  off_t cur;
-  struct hash_elem *e;
-
-  for (cur = 0; cur <= (off_t) file_size; cur += (off_t) PGSIZE)
-    {
-      uint32_t write_bytes = (file_size - cur) > PGSIZE ? PGSIZE : (file_size - cur);
-      if (pagedir_is_dirty (thread_current ()->pagedir, (void *) m->ptr + cur))
-	{
-	  lock_acquire (&filesys_lock);
-	  if (file_write_at (f, (void *) m->ptr + cur, write_bytes, cur)
-	      != (int) write_bytes)
-	    {
-	    }
-	  lock_release (&filesys_lock);
-	  struct suppl_page *s = malloc (sizeof (struct suppl_page));
-	  s->addr = (void *) m->ptr + cur;
-	  e = hash_find (&thread_current()->suppl_page_table,
-	  		 &s->hash_elem);
-	  if (e)
-	    {
-	      lock_acquire (&thread_current ()->suppl_page_lock);
-	      hash_delete (&thread_current ()->suppl_page_table, e);
-	      lock_release (&thread_current ()->suppl_page_lock);
-	    }
-	  free (s);
-	}
-    }
-}
-
-void
-handle_sys_munmap (struct intr_frame *f)
-{
-  uint32_t mmap_id = *(uint32_t *) (f->esp + (sizeof (uint32_t)));
-
-  struct thread *cur = thread_current ();
-  struct list *list = &cur->mmap_regions;
-  struct mmap_region *m;
-  struct list_elem *e;
-
-  for (e = list_begin (list); e != list_end (list);
-       e = list_next (e))
-    {
-      m = list_entry (e, struct mmap_region, elem);
-      if (m->mmap_id == (int) mmap_id)
-	{
-	  write_back_mmap (m);
-	  list_remove (&m->elem);
-	  return;
-	}
-    }
-  handle_sys_exit (f, -1);
 }
 
 static void
@@ -720,6 +490,7 @@ syscall_handler (struct intr_frame *f)
 {
   if ((uint32_t) f->esp > (uint32_t) PHYS_BASE || ((uint32_t) f->esp) < 0x08048000)
     handle_sys_exit (f, -1);
+
 
   switch ( *(uint32_t *) f->esp)
     {
@@ -761,12 +532,6 @@ syscall_handler (struct intr_frame *f)
       break;
     case SYS_TELL :
       handle_sys_tell (f);
-      break;
-    case SYS_MMAP :
-      handle_sys_mmap (f);
-      break;
-    case SYS_MUNMAP :
-      handle_sys_munmap (f);
       break;
     default :
       handle_sys_exit (f, -1);      

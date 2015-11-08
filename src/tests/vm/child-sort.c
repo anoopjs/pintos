@@ -1,7 +1,7 @@
 /* Reads a 128 kB file into static data and "sorts" the bytes in
    it, using counting sort, a single-pass algorithm.  The sorted
    data is written back to the same file in-place. */
- 
+
 #include <debug.h>
 #include <syscall.h>
 #include "tests/lib.h"
@@ -27,7 +27,6 @@ main (int argc UNUSED, char *argv[])
   size = read (handle, buf, sizeof buf);
   for (i = 0; i < size; i++)
     histogram[buf[i]]++;
-
   p = buf;
   for (i = 0; i < sizeof histogram / sizeof *histogram; i++) 
     {

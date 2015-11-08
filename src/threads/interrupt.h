@@ -51,7 +51,7 @@ struct intr_frame
     void (*eip) (void);         /* Next instruction to execute. */
     uint16_t cs, :16;           /* Code segment for eip. */
     uint32_t eflags;            /* Saved CPU flags. */
-    uint32_t esp;                  /* Saved stack pointer. */
+    void *esp;                  /* Saved stack pointer. */
     uint16_t ss, :16;           /* Data segment for esp. */
   };
 

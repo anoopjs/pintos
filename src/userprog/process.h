@@ -3,16 +3,10 @@
 
 #include "threads/thread.h"
 #include "threads/synch.h"
-#include "filesys/file.h"
-#include "filesys/filesys.h"
-#include "vm/page.h"
-
-bool install_page (void *, void *, bool);
 tid_t process_execute (const char *file_name);
 int process_wait (tid_t);
 void process_exit (void);
 void process_activate (void);
-bool force_load_page (struct suppl_page *);
 bool load_success;
 int child_status;
 struct semaphore load_sema;
