@@ -336,10 +336,11 @@ get_file_from_handle (int fd)
 void
 handle_sys_read (struct intr_frame *f)
 {
-  uint32_t fd, buffer, size;
+  uint32_t fd, buffer, size, _size;
   fd = *(uint32_t *) (f->esp + (sizeof (uint32_t)));
   buffer = *(uint32_t *) (f->esp + (sizeof (uint32_t)) * 2);
   size = *(uint32_t *) (f->esp + (sizeof (uint32_t)) * 3);
+  _size = size;
   int i;
   struct file *file = NULL;
 
@@ -357,7 +358,7 @@ handle_sys_read (struct intr_frame *f)
 	put_user (f, (void *) buffer + i, input_getc ());
     }
   else
-    file_read (file, buffer_temp, size);
+    _size = file_read (file, buffer_temp, size);
   
   for (i = 0; i < (int) size; i++)
     {
@@ -365,7 +366,7 @@ handle_sys_read (struct intr_frame *f)
     }
 
   free (buffer_temp);
-  f->eax = size;
+  f->eax = _size;
 }
 
 void
