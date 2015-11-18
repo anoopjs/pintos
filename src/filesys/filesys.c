@@ -38,6 +38,7 @@ filesys_init (bool format)
 void
 filesys_done (void) 
 {
+  write_back_cache_blocks ();
   free_map_close ();
 }
 
