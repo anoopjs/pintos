@@ -104,7 +104,7 @@ inode_init (void)
    Returns true if successful.
    Returns false if memory or disk allocation fails. */
 bool
-inode_create (block_sector_t sector, off_t length)
+inode_create (block_sector_t sector, off_t length, bool dir)
 {
   struct inode_disk *disk_inode = NULL;
   bool success = false;
@@ -121,6 +121,7 @@ inode_create (block_sector_t sector, off_t length)
     {
       size_t sectors = bytes_to_sectors (length);
       disk_inode->length = length;
+      disk_inode->type = (dir) ? DIR : FILE;
       disk_inode->magic = INODE_MAGIC;
       static char zeros[BLOCK_SECTOR_SIZE];
       struct inode_disk * indirect_block = NULL;
@@ -592,4 +593,16 @@ off_t
 inode_length (const struct inode *inode)
 {
   return inode->data.length;
+}
+
+bool
+inode_is_dir (struct inode *inode)
+{
+  return inode->data.type == DIR;
+}
+
+bool
+inode_is_file (struct inode *inode)
+{
+  return inode->data.type == FILE;
 }

@@ -31,6 +31,7 @@ void handle_sys_seek (struct intr_frame *);
 void handle_sys_tell (struct intr_frame *);
 void handle_sys_remove (struct intr_frame *);
 void handle_sys_mkdir (struct intr_frame *);
+void handle_sys_chdir (struct intr_frame *);
 static void syscall_handler (struct intr_frame *);
 
 struct file_descriptor
@@ -105,7 +106,7 @@ handle_sys_exit (struct intr_frame *f, int status)
   struct list_elem *e;
   struct file_descriptor *cur;
 
-  if (status == NULL)
+  if (status == (int) NULL)
     {
       if (f->esp + (sizeof (uint32_t) * 2) > PHYS_BASE)
 	handle_sys_exit (f, -1);
@@ -196,7 +197,7 @@ handle_sys_write (struct intr_frame *f)
 void
 handle_sys_create (struct intr_frame *f)
 {
-  char *file_name;
+  char *file_path;
   struct inode *inode = NULL;
   struct dir *d;
   uint32_t ARG1, ARG2;
@@ -211,34 +212,34 @@ handle_sys_create (struct intr_frame *f)
       return;
     }
 
-  file_name = malloc (sizeof (char) * 100);
+  file_path = malloc (sizeof (char) * 100);
   for (i = 0; i < 100; i++)
     {
-      file_name[i] = *(char *)(ARG1 + i);
-      if (file_name[i] == '\0')
+      file_path[i] = *(char *)(ARG1 + i);
+      if (file_path[i] == '\0')
       	break;
     }
-  if (strlen (file_name) == 0)
+  if (strlen (file_path) == 0)
     f->eax = false;
   else
     {
-      if (strlen (file_name) >= 511)
+      if (strlen (file_path) >= 511)
 	f->eax = false;
       else
 	{
 	  d = dir_open_root ();
-	  if (dir_lookup (d, file_name, &inode))
+	  if (dir_lookup (d, file_path, &inode))
 	    {
 	      f->eax = false;
 	    }
 	  else
 	    {
-	      filesys_create (file_name, ARG2);
+	      filesys_create (file_path, ARG2);
 	    }
 	  dir_close (d);
 	}
     }
-  free (file_name);
+  free (file_path);
 }
 
 void 
@@ -508,6 +509,26 @@ handle_sys_mkdir (struct intr_frame *f)
   free (dir_name);
 }
 
+void
+handle_sys_chdir (struct intr_frame *f)
+{
+  uint32_t dir_name_ptr;
+  dir_name_ptr = *(uint32_t *) (f->esp + (sizeof (uint32_t)));
+
+  char *dir_name;
+  int i;
+
+  dir_name = malloc (NAME_MAX + 1);
+  for (i = 0; i < 100; i++)
+    {
+      dir_name[i] = get_user (f, (uint8_t *) (dir_name_ptr + i));
+      if (dir_name[i] == '\0')
+	break;
+    }
+  f->eax = dir_chdir (dir_name);
+  free (dir_name);
+}
+
 static void
 syscall_handler (struct intr_frame *f) 
 {
@@ -557,6 +578,10 @@ syscall_handler (struct intr_frame *f)
       break;
     case SYS_MKDIR :
       handle_sys_mkdir (f);
+      break;
+    case SYS_CHDIR :
+      handle_sys_chdir (f);
+      break;
     default :
       handle_sys_exit (f, -1);      
       break;

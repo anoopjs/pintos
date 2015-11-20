@@ -6,6 +6,8 @@
 #include "filesys/inode.h"
 #include "threads/malloc.h"
 #include "threads/thread.h"
+#include "filesys/cache.h"
+#include "filesys/free-map.h"
 /* A directory. */
 struct dir 
   {
@@ -26,7 +28,7 @@ struct dir_entry
 bool
 dir_create (block_sector_t sector, size_t entry_cnt)
 {
-  return inode_create (sector, entry_cnt * sizeof (struct dir_entry));
+  return inode_create (sector, entry_cnt * sizeof (struct dir_entry), true);
 }
 
 /* Opens and returns the directory for the given INODE, of which
@@ -235,7 +237,59 @@ dir_readdir (struct dir *dir, char name[NAME_MAX + 1])
   return false;
 }
 
-bool dir_mkdir (char *path)
+struct dir 
+* dir_get (char *full_path)
+{
+  struct dir *cur_dir = thread_current ()->current_dir;
+  char *path = malloc (sizeof (char) * (strlen (full_path) + 1));
+  strlcpy (path, full_path, strlen (full_path) + 1);
+  char *name, *brkt;
+  struct inode *inode;
+  
+  if (path[0] == '/')
+    cur_dir = dir_open_root ();
+
+  for (name = strtok_r (path, "/", &brkt);
+       name;
+       name = strtok_r (NULL, "/", &brkt))
+    {
+      if (dir_lookup (cur_dir, name, &inode))
+	{
+	  if (inode_is_dir (inode))
+	    cur_dir = dir_open (inode);
+	  else
+	    {
+	      free (path);
+	      return cur_dir;
+	    }
+	}
+      else
+	break;
+    }
+
+  free (path);
+  return cur_dir;
+}
+
+char * 
+get_filename (char *full_path)
+{
+  char *path = malloc (sizeof (char) * (strlen (full_path) + 1));
+  strlcpy (path, full_path, strlen (full_path) + 1);
+  char *name, *brkt;
+  char *prev;
+  for (name = strtok_r (path, "/", &brkt);
+       name;
+       name = strtok_r (NULL, "/", &brkt))
+    {
+      prev = name;
+    }
+
+  return prev;
+}
+
+bool
+dir_mkdir (char *path)
 {
   struct dir *cur_dir = thread_current ()->current_dir;
   struct dir_entry de;
@@ -246,6 +300,19 @@ bool dir_mkdir (char *path)
   if (free_map_allocate (1, &de.inode_sector))
     write_cache_block (de.inode_sector, zeros);
 
+  dir_create (de.inode_sector, 0);
   return (inode_write_at (cur_dir->inode, (void *) &de, sizeof (de), inode_length (cur_dir->inode))
 	  == sizeof (de));
+}
+
+bool
+dir_chdir (char *path)
+{
+  struct dir *dir = dir_get (path);
+  if (dir)
+    {
+      thread_current ()->current_dir = dir;
+      return true;
+    }
+  return false;
 }
