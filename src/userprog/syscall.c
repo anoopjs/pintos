@@ -30,6 +30,7 @@ void handle_sys_wait (struct intr_frame *);
 void handle_sys_seek (struct intr_frame *);
 void handle_sys_tell (struct intr_frame *);
 void handle_sys_remove (struct intr_frame *);
+void handle_sys_mkdir (struct intr_frame *);
 static void syscall_handler (struct intr_frame *);
 
 struct file_descriptor
@@ -486,12 +487,32 @@ handle_sys_remove (struct intr_frame *f)
   free (file_name);
 }
 
+void
+handle_sys_mkdir (struct intr_frame *f)
+{
+  uint32_t dir_name_ptr;
+  dir_name_ptr = *(uint32_t *) (f->esp + (sizeof (uint32_t)));
+
+  char *dir_name;
+  int i;
+
+  dir_name = malloc (NAME_MAX + 1);
+  for (i = 0; i < 100; i++)
+    {
+      dir_name[i] = get_user (f, (uint8_t *) (dir_name_ptr + i));
+      if (dir_name[i] == '\0')
+	break;
+    }
+
+  f->eax = dir_mkdir (dir_name);
+  free (dir_name);
+}
+
 static void
 syscall_handler (struct intr_frame *f) 
 {
   if ((uint32_t) f->esp > (uint32_t) PHYS_BASE || ((uint32_t) f->esp) < 0x08048000)
     handle_sys_exit (f, -1);
-
 
   switch ( *(uint32_t *) f->esp)
     {
@@ -534,6 +555,8 @@ syscall_handler (struct intr_frame *f)
     case SYS_TELL :
       handle_sys_tell (f);
       break;
+    case SYS_MKDIR :
+      handle_sys_mkdir (f);
     default :
       handle_sys_exit (f, -1);      
       break;

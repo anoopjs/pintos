@@ -5,7 +5,7 @@
 #include "filesys/filesys.h"
 #include "filesys/inode.h"
 #include "threads/malloc.h"
-
+#include "threads/thread.h"
 /* A directory. */
 struct dir 
   {
@@ -233,4 +233,19 @@ dir_readdir (struct dir *dir, char name[NAME_MAX + 1])
         } 
     }
   return false;
+}
+
+bool dir_mkdir (char *path)
+{
+  struct dir *cur_dir = thread_current ()->current_dir;
+  struct dir_entry de;
+  static char zeros[BLOCK_SECTOR_SIZE];
+
+  strlcpy (de.name, path, NAME_MAX);
+  de.in_use = true;
+  if (free_map_allocate (1, &de.inode_sector))
+    write_cache_block (de.inode_sector, zeros);
+
+  return (inode_write_at (cur_dir->inode, (void *) &de, sizeof (de), inode_length (cur_dir->inode))
+	  == sizeof (de));
 }

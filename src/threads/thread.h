@@ -6,6 +6,7 @@
 #include <stdint.h>
 #include "threads/fixed-point.h"
 #include "threads/synch.h"
+#include "filesys/directory.h"
 /* States in a thread's life cycle. */
 enum thread_status
   {
@@ -110,6 +111,7 @@ struct thread
     struct semaphore load;
     struct list file_descriptors;
     struct file *file;
+    struct dir *current_dir;
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /* Page directory. */

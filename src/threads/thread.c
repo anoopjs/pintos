@@ -259,6 +259,7 @@ thread_create (const char *name, int priority,
   t->donated_by = NULL;
   t->nice = thread_get_nice ();
   t->recent_cpu = thread_get_recent_cpu ();
+  t->current_dir = thread_current ()->current_dir;
 
   sema_init (&t->one, 0);
   sema_init (&t->two, 0);

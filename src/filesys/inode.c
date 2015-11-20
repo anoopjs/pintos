@@ -11,15 +11,20 @@
 /* Identifies an inode. */
 #define INODE_MAGIC 0x494e4f44
 
+enum inode_type
+  {
+    FILE = 0,
+    DIR  = 1
+  };
 /* On-disk inode.
    Must be exactly BLOCK_SECTOR_SIZE bytes long. */
 struct inode_disk
   {
-    //    block_sector_t start;               /* First data sector. */
+    enum inode_type type;
     off_t length;                       /* File size in bytes. */
     unsigned magic;                     /* Magic number. */
     block_sector_t i_block[14];               /* Pointers to blocks */
-    uint32_t unused[112];               /* Not used. */
+    uint32_t unused[111];               /* Not used. */
   };
 
 /* Returns the number of sectors to allocate for an inode SIZE
@@ -288,8 +293,12 @@ inode_close (struct inode *inode)
       if (inode->removed) 
         {
           free_map_release (inode->sector, 1);
-          /* free_map_release (inode->data.start, */
-          /*                   bytes_to_sectors (inode->data.length));  */
+	  int i;
+	  for (i = 0; i < inode->data.length; i += BLOCK_SECTOR_SIZE)
+	    {
+	      block_sector_t sector = byte_to_sector (inode, i);
+	      free_map_release (sector, 1);
+	    }
         }
 
       free (inode); 
