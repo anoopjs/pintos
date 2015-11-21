@@ -118,7 +118,7 @@ handle_sys_exit (struct intr_frame *f, int status)
   struct list *list;
   struct list_elem *e;
   struct file_descriptor *cur;
-
+  struct dir_descriptor *cur_dir;
   if (status == (int) NULL)
     {
       if (f->esp + (sizeof (uint32_t) * 2) > PHYS_BASE)
@@ -134,6 +134,17 @@ handle_sys_exit (struct intr_frame *f, int status)
       file_close (cur->file);
       list_remove (&cur->elem);
       free (cur);
+    }
+
+  list = &(thread_current ()->dir_descriptors);
+  
+  for (e = list_begin (list); e != list_end (list);)
+    {
+      cur_dir = list_entry (e, struct dir_descriptor, elem);
+      e = list_next (e);
+      dir_close (cur_dir->dir);
+      list_remove (&cur_dir->elem);
+      free (cur_dir);
     }
 
   for (searcher = PHYS_BASE; *searcher != 0; --searcher) ;
@@ -281,9 +292,6 @@ handle_sys_open (struct intr_frame *f)
       return;
     }
 
-  /* if (strcmp (path, "file431") == 0) */
-  /*   printf ("hi\n"); */
-
   file = filesys_open (path);
 
   if (file != NULL)
@@ -396,6 +404,7 @@ handle_sys_open (struct intr_frame *f)
     }
   else
     f->eax = -1;
+
   free (path);
 }
 
@@ -718,8 +727,10 @@ handle_sys_isdir (struct intr_frame *f)
   
   if (get_dir_from_handle (dd))
     f->eax = true;
-  else
+  else if (get_file_from_handle (dd))
     f->eax = false;
+  else
+    f->eax = -1;
 }
 
 void

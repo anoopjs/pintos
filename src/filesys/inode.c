@@ -62,14 +62,18 @@ byte_to_sector (const struct inode *inode, off_t pos)
 	}
       else if (pos < (12 * BLOCK_SECTOR_SIZE + BLOCK_SECTOR_SIZE * BLOCK_SECTOR_SIZE / 4))
 	{
+	  block_sector_t sector;
 	  block_sector_t *direct_block = malloc (sizeof (struct inode_disk));
 	  read_cache_block (inode->data.i_block[12], direct_block);
-	  return *(direct_block + (pos - 12 * BLOCK_SECTOR_SIZE) / BLOCK_SECTOR_SIZE);
+	  sector =  *(direct_block + (pos - 12 * BLOCK_SECTOR_SIZE) / BLOCK_SECTOR_SIZE);
+	  free (direct_block);
+	  return sector;
 	}
       else if (pos < (12 * BLOCK_SECTOR_SIZE 
 		      + BLOCK_SECTOR_SIZE * BLOCK_SECTOR_SIZE / 4
 		      + BLOCK_SECTOR_SIZE * BLOCK_SECTOR_SIZE * BLOCK_SECTOR_SIZE / 16))
 	{
+	  block_sector_t sector;
 	  block_sector_t *indirect_block = malloc (sizeof (struct inode_disk));
 	  block_sector_t *direct_block   = malloc (sizeof (struct inode_disk));
 	  read_cache_block (inode->data.i_block[13], indirect_block);
@@ -77,10 +81,13 @@ byte_to_sector (const struct inode *inode, off_t pos)
 						- 12 * BLOCK_SECTOR_SIZE
 						- BLOCK_SECTOR_SIZE * BLOCK_SECTOR_SIZE / 4)
 			      / (BLOCK_SECTOR_SIZE * BLOCK_SECTOR_SIZE / 4)), direct_block);
-	  return *(direct_block + (pos 
+	  sector =  *(direct_block + ((pos 
 				   - 12 * BLOCK_SECTOR_SIZE
 				   - BLOCK_SECTOR_SIZE * BLOCK_SECTOR_SIZE / 4)
-		   % (BLOCK_SECTOR_SIZE * BLOCK_SECTOR_SIZE / 4) / BLOCK_SECTOR_SIZE);
+				   % (BLOCK_SECTOR_SIZE * BLOCK_SECTOR_SIZE / 4) / BLOCK_SECTOR_SIZE));
+	  free (direct_block);
+	  free (indirect_block);
+	  return sector;
 	}
     }
   else
@@ -564,6 +571,7 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
       inode->data.length = offset;
       write_cache_block (inode->sector, &inode->data);
     }
+
   
   return bytes_written;
 }
