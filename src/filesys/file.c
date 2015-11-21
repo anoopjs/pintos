@@ -2,7 +2,8 @@
 #include <debug.h>
 #include "filesys/inode.h"
 #include "threads/malloc.h"
-
+#include "filesys/directory.h"
+#include "filesys/inode.h"
 /* An open file. */
 struct file 
   {
@@ -18,7 +19,7 @@ struct file *
 file_open (struct inode *inode) 
 {
   struct file *file = calloc (1, sizeof *file);
-  if (inode != NULL && file != NULL)
+  if (inode != NULL && file != NULL && inode_is_file (inode))
     {
       file->inode = inode;
       file->pos = 0;
@@ -165,4 +166,17 @@ file_tell (struct file *file)
 {
   ASSERT (file != NULL);
   return file->pos;
+}
+
+bool
+is_file (char *path)
+{
+  struct dir *dir = dir_get (path);
+  char *name = get_filename (path);
+  struct inode *inode;
+
+  if (dir_lookup (dir, name, &inode) && inode_is_file (inode))
+    return true;
+
+  return false;
 }

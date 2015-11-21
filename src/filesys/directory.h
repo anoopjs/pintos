@@ -28,5 +28,8 @@ bool dir_remove (struct dir *, const char *name);
 bool dir_readdir (struct dir *, char name[NAME_MAX + 1]);
 bool dir_mkdir (char *);
 bool dir_chdir (char *);
+bool dir_rmdir (char *);
 char *get_filename (char *);
+struct dir *dir_get (char *);
+bool is_dir (char *);
 #endif /* filesys/directory.h */

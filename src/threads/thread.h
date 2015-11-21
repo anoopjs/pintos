@@ -110,8 +110,9 @@ struct thread
     struct semaphore two;
     struct semaphore load;
     struct list file_descriptors;
+    struct list dir_descriptors;
     struct file *file;
-    struct dir *current_dir;
+    block_sector_t current_dir;
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /* Page directory. */

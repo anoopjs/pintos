@@ -121,7 +121,7 @@ inode_create (block_sector_t sector, off_t length, bool dir)
     {
       size_t sectors = bytes_to_sectors (length);
       disk_inode->length = length;
-      disk_inode->type = (dir) ? DIR : FILE;
+      disk_inode->type = dir ? DIR : FILE;
       disk_inode->magic = INODE_MAGIC;
       static char zeros[BLOCK_SECTOR_SIZE];
       struct inode_disk * indirect_block = NULL;
@@ -605,4 +605,16 @@ bool
 inode_is_file (struct inode *inode)
 {
   return inode->data.type == FILE;
+}
+
+bool
+inode_removed (struct inode *inode)
+{
+  return inode->removed;
+}
+
+block_sector_t
+inode_sector (struct inode *inode)
+{
+  return inode->sector;
 }

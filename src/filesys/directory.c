@@ -8,6 +8,7 @@
 #include "threads/thread.h"
 #include "filesys/cache.h"
 #include "filesys/free-map.h"
+
 /* A directory. */
 struct dir 
   {
@@ -40,7 +41,7 @@ dir_open (struct inode *inode)
   if (inode != NULL && dir != NULL)
     {
       dir->inode = inode;
-      dir->pos = 0;
+      dir->pos = 2 * sizeof (struct dir_entry);
       return dir;
     }
   else
@@ -240,7 +241,49 @@ dir_readdir (struct dir *dir, char name[NAME_MAX + 1])
 struct dir 
 * dir_get (char *full_path)
 {
-  struct dir *cur_dir = thread_current ()->current_dir;
+  struct dir *cur_dir = dir_open (inode_open (thread_current ()->current_dir));
+  char *path = malloc (sizeof (char) * (strlen (full_path) + 1));
+  strlcpy (path, full_path, strlen (full_path) + 1);
+  char *name, *brkt;
+  struct inode *inode;
+  
+  if (inode_removed(cur_dir->inode))
+    return NULL;
+
+  if (!strcmp (path, "/"))
+    {
+      free (path);
+      return dir_open_root ();
+    }
+  if (path[0] == '/')
+    cur_dir = dir_open_root ();
+
+  name = strtok_r (path, "/", &brkt);
+  while (name)
+    {
+      if (dir_lookup (cur_dir, name, &inode))
+	{
+	  if (inode_is_dir (inode))
+	    {
+	      cur_dir = dir_open (inode);
+	    }
+	  else
+	    break;
+	}
+      else
+	  break;
+
+      name = strtok_r (NULL, "/", &brkt);
+      
+    }
+
+  free (path);
+  return cur_dir;
+}
+
+bool is_dir (char *full_path)
+{
+  struct dir *cur_dir = dir_open (inode_open (thread_current ()->current_dir));
   char *path = malloc (sizeof (char) * (strlen (full_path) + 1));
   strlcpy (path, full_path, strlen (full_path) + 1);
   char *name, *brkt;
@@ -255,20 +298,23 @@ struct dir
     {
       if (dir_lookup (cur_dir, name, &inode))
 	{
-	  if (inode_is_dir (inode))
+	  if (inode_is_dir (inode) && !inode_removed (inode) && !inode_removed (cur_dir->inode))
 	    cur_dir = dir_open (inode);
 	  else
 	    {
 	      free (path);
-	      return cur_dir;
+	      return false;
 	    }
 	}
       else
-	break;
+	{
+	  free (path);
+	  return false;
+	}
     }
 
   free (path);
-  return cur_dir;
+  return true;
 }
 
 char * 
@@ -277,7 +323,7 @@ get_filename (char *full_path)
   char *path = malloc (sizeof (char) * (strlen (full_path) + 1));
   strlcpy (path, full_path, strlen (full_path) + 1);
   char *name, *brkt;
-  char *prev;
+  char *prev = NULL;
   for (name = strtok_r (path, "/", &brkt);
        name;
        name = strtok_r (NULL, "/", &brkt))
@@ -291,16 +337,26 @@ get_filename (char *full_path)
 bool
 dir_mkdir (char *path)
 {
-  struct dir *cur_dir = thread_current ()->current_dir;
+  struct dir *cur_dir;
   struct dir_entry de;
   static char zeros[BLOCK_SECTOR_SIZE];
+  struct dir *dir;
+  char *name;
 
-  strlcpy (de.name, path, NAME_MAX);
+  if (is_file (path))
+    return false;
+  name = get_filename (path);
+  strlcpy (de.name, name, NAME_MAX);
+
   de.in_use = true;
   if (free_map_allocate (1, &de.inode_sector))
     write_cache_block (de.inode_sector, zeros);
 
+  cur_dir = dir_get (path);
   dir_create (de.inode_sector, 0);
+  dir = dir_open (inode_open (de.inode_sector));
+  dir_add (dir, ".", de.inode_sector);
+  dir_add (dir, "..", inode_sector (cur_dir->inode));
   return (inode_write_at (cur_dir->inode, (void *) &de, sizeof (de), inode_length (cur_dir->inode))
 	  == sizeof (de));
 }
@@ -309,10 +365,40 @@ bool
 dir_chdir (char *path)
 {
   struct dir *dir = dir_get (path);
-  if (dir)
+  if (is_dir (path))
     {
-      thread_current ()->current_dir = dir;
+      thread_current ()->current_dir = inode_sector (dir->inode);
       return true;
     }
   return false;
+}
+
+bool
+dir_rmdir (char *path)
+{
+  struct dir *dir = dir_get (path);
+  char *name = get_filename (path);
+  char *parent;
+  struct dir_entry e;
+  size_t ofs;
+  struct inode *inode;
+
+  for (ofs = 2 * sizeof e; inode_read_at (dir->inode, &e, sizeof e, ofs) == sizeof e;
+       ofs += sizeof e)
+    if (e.in_use)
+      return false;
+
+  parent = malloc (strlen (path) + 3);
+  strlcpy (parent, path, strlen (path) + 1);
+  strlcat (parent, "..", strlen (path) + 3);
+  
+  if (dir_lookup (dir_get (parent), name, &inode)
+      && inode_sector (inode) == ROOT_DIR_SECTOR)
+    return false;
+
+  dir_remove (dir_get (parent), name);
+
+  //  free (name);
+  free (parent);
+  return true;
 }

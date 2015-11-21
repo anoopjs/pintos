@@ -15,9 +15,11 @@
 #include <string.h>
 #include "devices/shutdown.h"
 #include "devices/input.h"
+#include "lib/user/syscall.h"
 
 char *read_string (uint32_t);
 struct file *get_file_from_handle (int);
+struct dir *get_dir_from_handle (int);
 void handle_sys_exit (struct intr_frame *, int);
 void handle_sys_create (struct intr_frame *);
 void handle_sys_open (struct intr_frame *);
@@ -32,6 +34,9 @@ void handle_sys_tell (struct intr_frame *);
 void handle_sys_remove (struct intr_frame *);
 void handle_sys_mkdir (struct intr_frame *);
 void handle_sys_chdir (struct intr_frame *);
+void handle_sys_readdir (struct intr_frame *);
+void handle_sys_isdir (struct intr_frame *);
+void handle_sys_inumber (struct intr_frame *);
 static void syscall_handler (struct intr_frame *);
 
 struct file_descriptor
@@ -40,6 +45,14 @@ struct file_descriptor
   struct file *file;
   struct list_elem elem;
 };
+
+struct dir_descriptor
+{
+  int dd;
+  struct dir *dir;
+  struct list_elem elem;
+};
+
 /* Reads a byte at user virtual address UADDR.
    UADDR must be below PHYS_BASE.
    Returns the byte value if successful, -1 if a segfault
@@ -187,9 +200,9 @@ handle_sys_write (struct intr_frame *f)
     {
       file = get_file_from_handle ((int) ARG0);
       if (file == NULL)
-	handle_sys_exit (f, -1);
-      
-      f->eax = file_write (file, buffer, ARG2);
+	f->eax = -1;
+      else
+	f->eax = file_write (file, buffer, ARG2);
     }
 
   free (buffer);
@@ -197,15 +210,14 @@ handle_sys_write (struct intr_frame *f)
 void
 handle_sys_create (struct intr_frame *f)
 {
-  char *file_path;
+  char *file_path, *name;
   struct inode *inode = NULL;
-  struct dir *d;
   uint32_t ARG1, ARG2;
   int i;
 
   ARG1 = *(uint32_t *) (f->esp + (sizeof (uint32_t)));
   ARG2 = *(uint32_t *) (f->esp + (sizeof (uint32_t)*2));
-
+  
   if (ARG1 == (uint32_t) NULL)
     {
       handle_sys_exit (f, -1);
@@ -227,16 +239,17 @@ handle_sys_create (struct intr_frame *f)
 	f->eax = false;
       else
 	{
-	  d = dir_open_root ();
-	  if (dir_lookup (d, file_path, &inode))
+	  name = get_filename (file_path);
+	  if (is_dir (file_path)
+	      || !dir_get (file_path)
+	      || dir_lookup (dir_get (file_path), name, &inode))
 	    {
 	      f->eax = false;
 	    }
 	  else
 	    {
-	      filesys_create (file_path, ARG2);
+	      f->eax = filesys_create (file_path, ARG2);
 	    }
-	  dir_close (d);
 	}
     }
   free (file_path);
@@ -247,9 +260,12 @@ handle_sys_open (struct intr_frame *f)
 {
   struct file *file;
   uint32_t ARG0;
-  char *file_name;
+  char *path;
   struct file_descriptor * file_descriptor, *last;
+  struct dir_descriptor * dir_descriptor, *last_dir;
+  struct dir *dir;
   struct list *list;
+
   ARG0 = *(uint32_t *) (f->esp + (sizeof (uint32_t)));
 
   if (ARG0 == 0)
@@ -257,32 +273,130 @@ handle_sys_open (struct intr_frame *f)
       handle_sys_exit (f, -1);
       return;
     }
-  file_name = read_string (ARG0);
-  file = filesys_open (file_name);
+  
+  path = read_string (ARG0);
+  if (strlen (path) == 0)
+    {
+      f->eax = -1;
+      return;
+    }
+
+  /* if (strcmp (path, "file431") == 0) */
+  /*   printf ("hi\n"); */
+
+  file = filesys_open (path);
+
   if (file != NULL)
     {
       file_descriptor = malloc (sizeof (struct file_descriptor));
       file_descriptor->file = file;
       if (list_empty (&thread_current ()->file_descriptors))
       	{
-      	  file_descriptor->fd = 2;
-      	  list_push_back (&thread_current ()->file_descriptors,
-      			  &file_descriptor->elem);
-      	  f->eax = 2;
+	  if (list_empty (&thread_current ()->dir_descriptors))
+	    {
+	      file_descriptor->fd = 2;
+	      list_push_back (&thread_current ()->file_descriptors,
+			      &file_descriptor->elem);
+	      f->eax = 2;
+	    }
+	  else
+	    {
+	      last_dir = list_entry (list_rbegin (&thread_current ()->dir_descriptors)
+				     , struct dir_descriptor, elem);
+	      file_descriptor->fd = last_dir->dd + 1;
+	      list_push_back (&thread_current ()->file_descriptors,
+			      &file_descriptor->elem);
+	      f->eax = file_descriptor->fd;
+	    }
       	}
       else
       	{
-      	  list = &(thread_current ()->file_descriptors);
-	  last = list_entry (list_rbegin (list), struct file_descriptor, elem);
-	  file_descriptor->fd = last->fd + 1;
-	  list_push_back (list,
-      			  &file_descriptor->elem);
-	  f->eax = file_descriptor->fd;
+	  if (list_empty (&thread_current ()->dir_descriptors))
+	    {
+	      last = list_entry (list_rbegin (&thread_current ()->file_descriptors)
+				     , struct file_descriptor, elem);
+	      file_descriptor->fd = last->fd + 1;
+	      list_push_back (&thread_current ()->file_descriptors,
+			      &file_descriptor->elem);
+	      f->eax = file_descriptor->fd;
+
+	    }
+	  else
+	    {
+	      list = &(thread_current ()->file_descriptors);
+	      last = list_entry (list_rbegin (list), struct file_descriptor, elem);
+	      last_dir = list_entry (list_rbegin (&thread_current ()->dir_descriptors)
+				     , struct dir_descriptor, elem);
+	      file_descriptor->fd = (last->fd > last_dir->dd 
+				     ? last->fd : last_dir->dd) + 1;
+	      list_push_back (list,
+			      &file_descriptor->elem);
+	      f->eax = file_descriptor->fd;
+	    }
       	}
+    }
+  else if (is_dir (path))
+    {
+      dir = dir_get (path);
+      if (strlen (path) &&
+	  (strcmp (path, "/") == 0 || is_dir (path)))
+	{
+	  dir_descriptor = malloc (sizeof (struct dir_descriptor));
+	  dir_descriptor->dir = dir;
+	  if (list_empty (&thread_current ()->dir_descriptors))
+	    {
+	      if (list_empty (&thread_current ()->file_descriptors))
+		{
+		  dir_descriptor->dd = 2;
+		  list_push_back (&thread_current ()->dir_descriptors,
+				  &dir_descriptor->elem);
+		  f->eax = 2;
+		}
+	      else
+		{
+		  last = list_entry (list_rbegin (&thread_current ()->file_descriptors)
+					 , struct file_descriptor, elem);
+		  dir_descriptor->dd = last->fd + 1;
+		  list_push_back (&thread_current ()->dir_descriptors,
+				  &dir_descriptor->elem);
+		  f->eax = dir_descriptor->dd;
+		}
+	    }
+	  else
+	    {
+	      if (list_empty (&thread_current ()->file_descriptors))
+		{
+		  last_dir = list_entry (list_rbegin 
+					 (&thread_current ()->dir_descriptors)
+				     , struct dir_descriptor, elem);
+		  dir_descriptor->dd = last_dir->dd + 1;
+		  list_push_back (&thread_current ()->dir_descriptors,
+				  &dir_descriptor->elem);
+		  f->eax = dir_descriptor->dd;
+		}
+	      else
+		{
+		  list = &(thread_current ()->dir_descriptors);
+		  last_dir = list_entry (list_rbegin (list), 
+					 struct dir_descriptor, elem);
+		  last = list_entry (list_rbegin (&thread_current ()->file_descriptors)
+				     , struct file_descriptor, elem);
+		  dir_descriptor->dd = (last->fd > last_dir->dd 
+					? last->fd : last_dir->dd) + 1;
+		  list_push_back (list,
+				  &dir_descriptor->elem);
+		  f->eax = dir_descriptor->dd;
+		}
+	    }
+	  
+	}
+      else
+	f->eax = -1;
+
     }
   else
     f->eax = -1;
-  free (file_name);
+  free (path);
 }
 
 void
@@ -296,6 +410,7 @@ handle_sys_close (struct intr_frame *f)
 
   struct thread *cur = thread_current ();
   struct list *list = &cur->file_descriptors;
+  struct dir_descriptor *dir_desc;
   struct file_descriptor *file_desc;
   struct list_elem *e;
 
@@ -307,6 +422,21 @@ handle_sys_close (struct intr_frame *f)
 	{
 	  file_close (file_desc->file);
 	  list_remove (&file_desc->elem);
+	  f->eax = true;
+	  return;
+	}
+    }
+
+  list = &cur->dir_descriptors;
+
+  for (e = list_begin (list); e != list_end (list);
+       e = list_next (e))
+    {
+      dir_desc = list_entry (e, struct dir_descriptor, elem);
+      if (dir_desc->dd == (int) ARG0)
+	{
+	  dir_close (dir_desc->dir);
+	  list_remove (&dir_desc->elem);
 	  f->eax = true;
 	  return;
 	}
@@ -333,6 +463,27 @@ get_file_from_handle (int fd)
 	}
     }
   return file;
+}
+
+struct dir *
+get_dir_from_handle (int dd)
+{
+  struct thread *cur = thread_current ();
+  struct list *list = &cur->dir_descriptors;
+  struct dir_descriptor *dir_descriptor;
+  struct list_elem *e;
+  struct file *dir = NULL;
+  for (e = list_begin (list); e != list_end (list);
+       e = list_next (e))
+    {
+      dir_descriptor = list_entry (e, struct file_descriptor, elem);
+      if (dir_descriptor->dd == (int) dd)
+	{
+	  dir = dir_descriptor->dir;
+	  break;
+	}
+    }
+  return dir;
 }
 
 void
@@ -473,19 +624,28 @@ handle_sys_remove (struct intr_frame *f)
 {
   uint32_t fname_ptr;
   fname_ptr = *(uint32_t *) (f->esp + (sizeof (uint32_t)));
-
-  char *file_name;
+  struct dir *dir;
+  char *path, *name;
+  struct inode *inode;
   int i;
 
-  file_name = malloc (100);
+  path = malloc (100);
   for (i = 0; i < 100; i++)
     {
-      file_name[i] = get_user (f, (uint8_t *)(fname_ptr + i));
-      if (file_name[i] == '\0')
+      path[i] = get_user (f, (uint8_t *)(fname_ptr + i));
+      if (path[i] == '\0')
 	break;
     }
-  f->eax = filesys_remove (file_name);
-  free (file_name);
+
+  dir = dir_get (path);
+  name = get_filename (path);
+  if (name && dir_lookup (dir, name, &inode))
+    f->eax = filesys_remove (path);
+  else
+    f->eax = dir_rmdir (path);
+
+  dir_close (dir);
+  free (path);
 }
 
 void
@@ -504,8 +664,10 @@ handle_sys_mkdir (struct intr_frame *f)
       if (dir_name[i] == '\0')
 	break;
     }
-
-  f->eax = dir_mkdir (dir_name);
+  if (dir_name[0] == '\0')
+    f->eax = 0;
+  else
+    f->eax = dir_mkdir (dir_name);
   free (dir_name);
 }
 
@@ -527,6 +689,63 @@ handle_sys_chdir (struct intr_frame *f)
     }
   f->eax = dir_chdir (dir_name);
   free (dir_name);
+}
+
+void
+handle_sys_readdir (struct intr_frame *f)
+{
+  uint32_t dd, buffer;
+  struct dir *dir;
+  dd = *(uint32_t *) (f->esp + (sizeof (uint32_t)));
+  buffer = *(uint32_t *) (f->esp + (sizeof (uint32_t)) * 2);
+  char buf[READDIR_MAX_LEN + 1];
+  int i;
+
+  dir = get_dir_from_handle (dd);
+  f->eax = dir_readdir (dir, buf);
+  for (i = 0; i < READDIR_MAX_LEN && buf[i] != '\0'; i++)
+    {
+      put_user (f, (void *) buffer + i, buf[i]);      
+    }
+  put_user (f, (void *) buffer + i, '\0');
+}
+
+void
+handle_sys_isdir (struct intr_frame *f)
+{
+  uint32_t dd;
+  dd = *(uint32_t *) (f->esp + (sizeof (uint32_t)));
+  
+  if (get_dir_from_handle (dd))
+    f->eax = true;
+  else
+    f->eax = false;
+}
+
+void
+handle_sys_inumber (struct intr_frame *f)
+{
+  uint32_t fd;
+  fd = *(uint32_t *) (f->esp + (sizeof (uint32_t)));
+
+  struct file *file = NULL;
+  struct dir *dir = NULL;
+
+  file = get_file_from_handle (fd);
+  if (file)
+    {
+      f->eax = inode_get_inumber (file_get_inode (file));
+      return;
+    }
+
+  dir = get_dir_from_handle (fd);
+  if (dir)
+    {
+      f->eax = inode_get_inumber (dir_get_inode (dir));
+      return;
+    }
+
+  f->eax = 0;
 }
 
 static void
@@ -581,6 +800,15 @@ syscall_handler (struct intr_frame *f)
       break;
     case SYS_CHDIR :
       handle_sys_chdir (f);
+      break;
+    case SYS_READDIR :
+      handle_sys_readdir (f);
+      break;
+    case SYS_ISDIR :
+      handle_sys_isdir (f);
+      break;
+    case SYS_INUMBER :
+      handle_sys_inumber (f);
       break;
     default :
       handle_sys_exit (f, -1);      

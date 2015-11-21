@@ -254,6 +254,7 @@ thread_create (const char *name, int priority,
 
   list_init (&(t->donate_list));
   list_init (&(t->file_descriptors));
+  list_init (&(t->dir_descriptors));
   t->waiting_for_lock = NULL;
   t->waiting_for_semaphore = NULL;
   t->donated_by = NULL;
