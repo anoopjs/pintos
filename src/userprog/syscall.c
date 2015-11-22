@@ -154,15 +154,15 @@ handle_sys_exit (struct intr_frame *f, int status)
 	 && get_user (f, (void *)searcher + ofs) == 0; 
        ofs++) ;
   
-  buffer = malloc (100 * sizeof (char));
-  for (i = 0; i < 100; i++)
-    {
-      buffer[i] = get_user (f, (uint8_t *) 
-			    (ofs + i + (uint32_t) searcher));
-      if (buffer[i] == '\0')
-	break;
-    }
-  free (buffer);
+  /* buffer = malloc (100 * sizeof (char)); */
+  /* for (i = 0; i < 100; i++) */
+  /*   { */
+  /*     buffer[i] = get_user (f, (uint8_t *)  */
+  /* 			    (ofs + i + (uint32_t) searcher)); */
+  /*     if (buffer[i] == '\0') */
+  /* 	break; */
+  /*   } */
+  /* free (buffer); */
   buffer = strtok_r (thread_current ()->name, " ", &brkt);
   exit_message_size = sizeof (char) * (strlen(buffer) + 15);
   exit_message = malloc (exit_message_size);
@@ -238,7 +238,7 @@ handle_sys_create (struct intr_frame *f)
   file_path = malloc (sizeof (char) * 100);
   for (i = 0; i < 100; i++)
     {
-      file_path[i] = *(char *)(ARG1 + i);
+      file_path[i] = get_user (f, (uint8_t *) (ARG1 + i));
       if (file_path[i] == '\0')
       	break;
     }
@@ -250,9 +250,11 @@ handle_sys_create (struct intr_frame *f)
 	f->eax = false;
       else
 	{
+	  struct dir *d;
+	  d = dir_get (file_path);
 	  name = get_filename (file_path);
 	  if (is_dir (file_path)
-	      || !dir_get (file_path)
+	      || !d
 	      || dir_lookup (dir_get (file_path), name, &inode))
 	    {
 	      f->eax = false;
@@ -261,6 +263,9 @@ handle_sys_create (struct intr_frame *f)
 	    {
 	      f->eax = filesys_create (file_path, ARG2);
 	    }
+	  free (name);
+	  dir_close (d);
+	  inode_close (inode);
 	}
     }
   free (file_path);
@@ -293,7 +298,6 @@ handle_sys_open (struct intr_frame *f)
     }
 
   file = filesys_open (path);
-
   if (file != NULL)
     {
       file_descriptor = malloc (sizeof (struct file_descriptor));
@@ -396,7 +400,6 @@ handle_sys_open (struct intr_frame *f)
 		  f->eax = dir_descriptor->dd;
 		}
 	    }
-	  
 	}
       else
 	f->eax = -1;
@@ -431,6 +434,7 @@ handle_sys_close (struct intr_frame *f)
 	{
 	  file_close (file_desc->file);
 	  list_remove (&file_desc->elem);
+	  free (file_desc);
 	  f->eax = true;
 	  return;
 	}
@@ -446,6 +450,7 @@ handle_sys_close (struct intr_frame *f)
 	{
 	  dir_close (dir_desc->dir);
 	  list_remove (&dir_desc->elem);
+	  free (dir_desc);
 	  f->eax = true;
 	  return;
 	}
@@ -649,12 +654,16 @@ handle_sys_remove (struct intr_frame *f)
   dir = dir_get (path);
   name = get_filename (path);
   if (name && dir_lookup (dir, name, &inode))
-    f->eax = filesys_remove (path);
+    {
+      f->eax = filesys_remove (path);
+      inode_close (inode);
+    }
   else
     f->eax = dir_rmdir (path);
 
-  dir_close (dir);
-  free (path);
+   dir_close (dir);
+   free (name);
+   free (path);
 }
 
 void
@@ -752,7 +761,8 @@ handle_sys_inumber (struct intr_frame *f)
   dir = get_dir_from_handle (fd);
   if (dir)
     {
-      f->eax = inode_get_inumber (dir_get_inode (dir));
+      struct inode *inode = dir_get_inode (dir);
+      f->eax = inode_get_inumber (inode);
       return;
     }
 

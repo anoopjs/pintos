@@ -330,8 +330,6 @@ inode_read_at (struct inode *inode, void *buffer_, off_t size, off_t offset)
 {
   uint8_t *buffer = buffer_;
   off_t bytes_read = 0;
-  uint8_t *bounce = NULL;
-
   while (size > 0) 
     {
       /* Disk sector to read, starting byte offset within sector. */
@@ -356,18 +354,8 @@ inode_read_at (struct inode *inode, void *buffer_, off_t size, off_t offset)
         }
       else 
         {
-          /* Read sector into bounce buffer, then partially copy
-             into caller's buffer. */
-          if (bounce == NULL)
-            {
-              bounce = malloc (BLOCK_SECTOR_SIZE);
-              if (bounce == NULL)
-                break;
-            }
-          //block_read (fs_device, sector_idx, bounce);
 	  struct cache_block *cb = read_cache_block (sector_idx, NULL);
 	  memcpy (buffer + bytes_read, (void *) &cb->data + sector_ofs, chunk_size);
-	  //          memcpy (buffer + bytes_read, bounce + sector_ofs, chunk_size);
         }
       
       /* Advance. */
@@ -375,7 +363,6 @@ inode_read_at (struct inode *inode, void *buffer_, off_t size, off_t offset)
       offset += chunk_size;
       bytes_read += chunk_size;
     }
-  free (bounce);
 
   return bytes_read;
 }
@@ -550,12 +537,10 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
              we're writing, then we need to read in the sector
              first.  Otherwise we start with a sector of all zeros. */
           if (sector_ofs > 0 || chunk_size < sector_left) 
-	    //            block_read (fs_device, sector_idx, bounce);
 	    read_cache_block (sector_idx, bounce);
           else
             memset (bounce, 0, BLOCK_SECTOR_SIZE);
           memcpy (bounce + sector_ofs, buffer + bytes_written, chunk_size);
-	  //block_write (fs_device, sector_idx, bounce);
 	  write_cache_block (sector_idx, bounce);
         }
 
@@ -564,8 +549,8 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
       offset += chunk_size;
       bytes_written += chunk_size;
     }
-  free (bounce);
 
+  free (bounce);
   if (grow)
     {
       inode->data.length = offset;

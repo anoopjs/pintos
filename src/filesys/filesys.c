@@ -63,6 +63,7 @@ filesys_create (const char *path, off_t initial_size)
     free_map_release (inode_sector, 1);
 
   dir_close (dir);
+  free (name);
   return success;
 }
 
@@ -82,6 +83,7 @@ filesys_open (const char *path)
     dir_lookup (dir, name, &inode);
 
   dir_close (dir);
+  free (name);
   return file_open (inode);
 }
 
@@ -97,6 +99,7 @@ filesys_remove (const char *path)
   bool success = dir != NULL && dir_remove (dir, name);
 
   dir_close (dir); 
+  free (name);
   return success;
 }
 
@@ -113,6 +116,8 @@ do_format (void)
   dir = dir_open_root ();
   dir_add (dir, ".", ROOT_DIR_SECTOR);
   dir_add (dir, "..", ROOT_DIR_SECTOR);
+  dir_close (dir);
+
   free_map_close ();
   printf ("done.\n");
 }

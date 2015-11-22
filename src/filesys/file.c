@@ -173,10 +173,17 @@ is_file (char *path)
 {
   struct dir *dir = dir_get (path);
   char *name = get_filename (path);
-  struct inode *inode;
+  struct inode *inode = NULL;
 
   if (dir_lookup (dir, name, &inode) && inode_is_file (inode))
-    return true;
+    {
+      /* inode_close (inode); */
+      /* dir_close (dir); */
+      return true;
+    }
 
+  free (name);
+  /* inode_close (inode); */
+  /* dir_close (dir); */
   return false;
 }

@@ -245,18 +245,25 @@ struct dir
   char *path = malloc (sizeof (char) * (strlen (full_path) + 1));
   strlcpy (path, full_path, strlen (full_path) + 1);
   char *name, *brkt;
-  struct inode *inode;
+  struct inode *inode = NULL;
   
   if (inode_removed(cur_dir->inode))
-    return NULL;
+    {
+      free (path);
+      return NULL;
+    }
 
   if (!strcmp (path, "/"))
     {
       free (path);
+      dir_close (cur_dir);
       return dir_open_root ();
     }
   if (path[0] == '/')
-    cur_dir = dir_open_root ();
+    {
+      dir_close (cur_dir);
+      cur_dir = dir_open_root ();
+    }
 
   name = strtok_r (path, "/", &brkt);
   while (name)
@@ -265,16 +272,21 @@ struct dir
 	{
 	  if (inode_is_dir (inode))
 	    {
+	      dir_close (cur_dir);
+	      cur_dir = dir_open (inode_reopen (inode));
 	      cur_dir = dir_open (inode);
+	      inode = NULL;
 	    }
 	  else
-	    break;
+	    {
+	      inode_close (inode);
+	      break;
+	    }
 	}
       else
 	  break;
 
       name = strtok_r (NULL, "/", &brkt);
-      
     }
 
   free (path);
@@ -284,13 +296,16 @@ struct dir
 bool is_dir (char *full_path)
 {
   struct dir *cur_dir = dir_open (inode_open (thread_current ()->current_dir));
-  char *path = malloc (sizeof (char) * (strlen (full_path) + 1));
+  char *path = malloc (sizeof (char) * strlen (full_path) + 1);
   strlcpy (path, full_path, strlen (full_path) + 1);
   char *name, *brkt;
-  struct inode *inode;
+  struct inode *inode = NULL;
   
   if (path[0] == '/')
-    cur_dir = dir_open_root ();
+    {
+      dir_close (cur_dir);
+      cur_dir = dir_open_root ();
+    }
 
   for (name = strtok_r (path, "/", &brkt);
        name;
@@ -299,20 +314,27 @@ bool is_dir (char *full_path)
       if (dir_lookup (cur_dir, name, &inode))
 	{
 	  if (inode_is_dir (inode) && !inode_removed (inode) && !inode_removed (cur_dir->inode))
-	    cur_dir = dir_open (inode);
+	    {
+	      dir_close (cur_dir);
+	      cur_dir = dir_open (inode_reopen (inode));
+	    }
 	  else
 	    {
+	      inode_close (inode);
+	      dir_close (cur_dir);
 	      free (path);
 	      return false;
 	    }
 	}
       else
 	{
+	  dir_close (cur_dir);
 	  free (path);
 	  return false;
 	}
     }
 
+  dir_close (cur_dir);
   free (path);
   return true;
 }
@@ -324,6 +346,7 @@ get_filename (char *full_path)
   strlcpy (path, full_path, strlen (full_path) + 1);
   char *name, *brkt;
   char *prev = NULL;
+  char *result = NULL;
   for (name = strtok_r (path, "/", &brkt);
        name;
        name = strtok_r (NULL, "/", &brkt))
@@ -331,7 +354,13 @@ get_filename (char *full_path)
       prev = name;
     }
 
-  return prev;
+  if (prev)
+    {
+      result = malloc (sizeof (char) * (strlen (prev) + 1));
+      strlcpy (result, prev, strlen (prev) + 1);
+    }
+  free (path);
+  return result;
 }
 
 bool
@@ -342,6 +371,7 @@ dir_mkdir (char *path)
   static char zeros[BLOCK_SECTOR_SIZE];
   struct dir *dir;
   char *name;
+  bool status;
 
   if (is_file (path))
     return false;
@@ -357,8 +387,16 @@ dir_mkdir (char *path)
   dir = dir_open (inode_open (de.inode_sector));
   dir_add (dir, ".", de.inode_sector);
   dir_add (dir, "..", inode_sector (cur_dir->inode));
-  return (inode_write_at (cur_dir->inode, (void *) &de, sizeof (de), inode_length (cur_dir->inode))
-	  == sizeof (de));
+  
+  status = (inode_write_at (cur_dir->inode
+			    , (void *) &de, sizeof (de)
+			    , inode_length (cur_dir->inode))
+	    == sizeof (de));
+
+  free (name);
+  dir_close (dir);
+  dir_close (cur_dir);
+  return status;
 }
 
 bool
@@ -368,6 +406,7 @@ dir_chdir (char *path)
   if (is_dir (path))
     {
       thread_current ()->current_dir = inode_sector (dir->inode);
+      dir_close (dir);
       return true;
     }
   return false;
@@ -381,7 +420,7 @@ dir_rmdir (char *path)
   char *parent;
   struct dir_entry e;
   size_t ofs;
-  struct inode *inode;
+  struct inode *inode = NULL;
 
   for (ofs = 2 * sizeof e; inode_read_at (dir->inode, &e, sizeof e, ofs) == sizeof e;
        ofs += sizeof e)
@@ -398,7 +437,8 @@ dir_rmdir (char *path)
 
   dir_remove (dir_get (parent), name);
 
-  //  free (name);
+  dir_close (dir);
+  free (name);
   free (parent);
   return true;
 }
