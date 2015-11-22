@@ -177,13 +177,13 @@ is_file (char *path)
 
   if (dir_lookup (dir, name, &inode) && inode_is_file (inode))
     {
-      /* inode_close (inode); */
-      /* dir_close (dir); */
+      inode_close (inode);
+      dir_close (dir);
       return true;
     }
 
   free (name);
-  /* inode_close (inode); */
-  /* dir_close (dir); */
+  inode_close (inode);
+  dir_close (dir);
   return false;
 }

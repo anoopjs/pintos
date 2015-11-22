@@ -274,7 +274,6 @@ struct dir
 	    {
 	      dir_close (cur_dir);
 	      cur_dir = dir_open (inode_reopen (inode));
-	      cur_dir = dir_open (inode);
 	      inode = NULL;
 	    }
 	  else
