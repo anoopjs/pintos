@@ -248,6 +248,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
   process_activate ();
 
   /* Open executable file. */
+  dir_open_root ();
   file = filesys_open (f_name);
   if (file == NULL) 
     {

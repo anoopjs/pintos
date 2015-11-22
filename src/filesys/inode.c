@@ -55,12 +55,10 @@ static block_sector_t
 byte_to_sector (const struct inode *inode, off_t pos) 
 {
   ASSERT (inode != NULL);
-  sema_down (&inode->sema);
   if (pos < inode->data.length)
     {
       if (pos < 12 * BLOCK_SECTOR_SIZE)
 	{
-	  sema_up (&inode->sema);
 	  return inode->data.i_block[pos / BLOCK_SECTOR_SIZE];
 	}
       else if (pos < (12 * BLOCK_SECTOR_SIZE + BLOCK_SECTOR_SIZE * BLOCK_SECTOR_SIZE / 4))
@@ -70,7 +68,6 @@ byte_to_sector (const struct inode *inode, off_t pos)
 	  read_cache_block (inode->data.i_block[12], direct_block);
 	  sector =  *(direct_block + (pos - 12 * BLOCK_SECTOR_SIZE) / BLOCK_SECTOR_SIZE);
 	  free (direct_block);
-	  sema_up (&inode->sema);
 	  return sector;
 	}
       else if (pos < (12 * BLOCK_SECTOR_SIZE 
@@ -91,13 +88,11 @@ byte_to_sector (const struct inode *inode, off_t pos)
 				   % (BLOCK_SECTOR_SIZE * BLOCK_SECTOR_SIZE / 4) / BLOCK_SECTOR_SIZE));
 	  free (direct_block);
 	  free (indirect_block);
-	  sema_up (&inode->sema);
 	  return sector;
 	}
     }
   else
     {
-      sema_up (&inode->sema);
       return -1;
     }
 }
@@ -105,12 +100,13 @@ byte_to_sector (const struct inode *inode, off_t pos)
 /* List of open inodes, so that opening a single inode twice
    returns the same `struct inode'. */
 static struct list open_inodes;
-
+struct semaphore sema;
 /* Initializes the inode module. */
 void
 inode_init (void) 
 {
   list_init (&open_inodes);
+  sema_init (&sema, 1);
 }
 
 /* Initializes an inode with LENGTH bytes of data and
@@ -263,14 +259,16 @@ inode_open (block_sector_t sector)
     return NULL;
 
   /* Initialize. */
+  sema_down (&sema);
   list_push_front (&open_inodes, &inode->elem);
+  sema_up (&sema);
   inode->sector = sector;
   inode->open_cnt = 1;
   inode->deny_write_cnt = 0;
   inode->removed = false;
   sema_init (&inode->sema, 1);
-  //  block_read (fs_device, inode->sector, &inode->data);
   read_cache_block (inode->sector, &inode->data);
+  //  block_read (fs_device, inode->sector, &inode->data);
   return inode;
 }
 
@@ -300,7 +298,7 @@ inode_close (struct inode *inode)
   if (inode == NULL)
     return;
 
-  /* Release resources if this was the last opener. */
+   /* Release resources if this was the last opener. */
   if (--inode->open_cnt == 0)
     {
       /* Remove from inode list and release lock. */
@@ -344,6 +342,8 @@ inode_read_at (struct inode *inode, void *buffer_, off_t size, off_t offset)
       /* Disk sector to read, starting byte offset within sector. */
 
       block_sector_t sector_idx = byte_to_sector (inode, offset);
+      if (sector_idx == -1)
+	return 0;
       int sector_ofs = offset % BLOCK_SECTOR_SIZE;
 
       /* Bytes left in inode, bytes left in sector, lesser of the two. */
@@ -356,7 +356,7 @@ inode_read_at (struct inode *inode, void *buffer_, off_t size, off_t offset)
       if (chunk_size <= 0)
         break;
 
-      sema_down (&inode->sema);
+      //      sema_down (&inode->sema);
       if (sector_ofs == 0 && chunk_size == BLOCK_SECTOR_SIZE)
         {
           /* Read full sector directly into caller's buffer. */
@@ -385,7 +385,7 @@ grow_one_block (struct inode *inode)
   size_t sectors       = bytes_to_sectors (disk_inode->length);
   static char zeros[BLOCK_SECTOR_SIZE];
 
-  sema_down (&inode->sema);
+  //  sema_down (&inode->sema);
   if (sectors < 12)
     {
       if (free_map_allocate (1, &disk_inode->i_block[sectors]))
@@ -589,7 +589,7 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
       if (sector_ofs == 0 && chunk_size == BLOCK_SECTOR_SIZE)
         {
           /* Write full sector directly to disk. */
-	  sema_down (&inode->sema);
+	  //	  sema_down (&inode->sema);
 	  write_cache_block (sector_idx, buffer + bytes_written);
         }
       else 
@@ -610,10 +610,10 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
           else
             memset (bounce, 0, BLOCK_SECTOR_SIZE);
           memcpy (bounce + sector_ofs, buffer + bytes_written, chunk_size);
-	  sema_down (&inode->sema);
+	  //	  sema_down (&inode->sema);
 	  write_cache_block (sector_idx, bounce);
         }
-      sema_up (&inode->sema);
+      //      sema_up (&inode->sema);
 
       /* Advance. */
       size -= chunk_size;

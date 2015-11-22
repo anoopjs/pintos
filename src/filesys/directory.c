@@ -273,7 +273,7 @@ struct dir
 	  if (inode_is_dir (inode))
 	    {
 	      dir_close (cur_dir);
-	      cur_dir = dir_open (inode_reopen (inode));
+	      cur_dir = dir_open (inode);
 	      inode = NULL;
 	    }
 	  else
@@ -315,7 +315,7 @@ bool is_dir (char *full_path)
 	  if (inode_is_dir (inode) && !inode_removed (inode) && !inode_removed (cur_dir->inode))
 	    {
 	      dir_close (cur_dir);
-	      cur_dir = dir_open (inode_reopen (inode));
+	      cur_dir = dir_open (inode);
 	    }
 	  else
 	    {

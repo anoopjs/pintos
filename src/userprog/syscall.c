@@ -255,7 +255,7 @@ handle_sys_create (struct intr_frame *f)
 	  name = get_filename (file_path);
 	  if (is_dir (file_path)
 	      || !d
-	      || dir_lookup (dir_get (file_path), name, &inode))
+	      || dir_lookup (d, name, &inode))
 	    {
 	      f->eax = false;
 	    }
