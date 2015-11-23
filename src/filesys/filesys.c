@@ -22,6 +22,7 @@ filesys_init (bool format)
 {
   list_init (&buffer_cache);
   sema_init (&sema_cache, 1);
+  hash_init (&buffer_cache_table, cache_hash, cache_less, NULL);
   fs_device = block_get_role (BLOCK_FILESYS);
   if (fs_device == NULL)
     PANIC ("No file system device found, can't initialize file system.");

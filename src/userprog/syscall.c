@@ -525,12 +525,12 @@ handle_sys_read (struct intr_frame *f)
 	put_user (f, (void *) buffer + i, input_getc ());
     }
   else
-    _size = file_read (file, buffer_temp, size);
+    _size = file_read (file, buffer, size);
   
-  for (i = 0; i < (int) size; i++)
-    {
-      put_user (f, (void *) buffer + i, buffer_temp[i]);
-    }
+  /* for (i = 0; i < (int) size; i++) */
+  /*   { */
+  /*     put_user (f, (void *) buffer + i, buffer_temp[i]); */
+  /*   } */
 
   free (buffer_temp);
   f->eax = _size;

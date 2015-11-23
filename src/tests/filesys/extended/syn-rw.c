@@ -9,7 +9,7 @@
 
 char buf[BUF_SIZE];
 
-#define CHILD_CNT 4
+#define CHILD_CNT 2
 
 void
 test_main (void) 
