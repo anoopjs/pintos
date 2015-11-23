@@ -7,7 +7,7 @@
 #include "filesys/free-map.h"
 #include "threads/malloc.h"
 #include "filesys/cache.h"
-
+#include "threads/thread.h"
 /* Identifies an inode. */
 #define INODE_MAGIC 0x494e4f44
 
@@ -350,25 +350,26 @@ inode_read_at (struct inode *inode, void *buffer_, off_t size, off_t offset)
       off_t inode_left = inode_length (inode) - offset;
       int sector_left = BLOCK_SECTOR_SIZE - sector_ofs;
       int min_left = inode_left < sector_left ? inode_left : sector_left;
-
       /* Number of bytes to actually copy out of this sector. */
       int chunk_size = size < min_left ? size : min_left;
       if (chunk_size <= 0)
         break;
 
-      //      sema_down (&inode->sema);
       if (sector_ofs == 0 && chunk_size == BLOCK_SECTOR_SIZE)
         {
           /* Read full sector directly into caller's buffer. */
 	  //block_read (fs_device, sector_idx, buffer + bytes_read);
+	  sema_down (&inode->sema);
 	  read_cache_block (sector_idx, buffer + bytes_read);
+	  sema_up (&inode->sema);
         }
       else 
         {
+	  sema_down (&inode->sema);
 	  struct cache_block *cb = read_cache_block (sector_idx, NULL);
+	  sema_up (&inode->sema);
 	  memcpy (buffer + bytes_read, (void *) &cb->data + sector_ofs, chunk_size);
         }
-      sema_up (&inode->sema);
       /* Advance. */
       size -= chunk_size;
       offset += chunk_size;
@@ -392,7 +393,7 @@ grow_one_block (struct inode *inode)
 	write_cache_block (disk_inode->i_block[sectors], zeros);
       else
 	{
-	  sema_up (&inode->sema);
+	  //	  sema_up (&inode->sema);
 	  return false;
 	}
     }
@@ -405,7 +406,7 @@ grow_one_block (struct inode *inode)
 	    write_cache_block (*(block_sector_t *) direct_block, zeros);
 	  else
 	    {
-	      sema_up (&inode->sema);
+	      //	      sema_up (&inode->sema);
 	      return false;
 	    }
 
@@ -413,7 +414,7 @@ grow_one_block (struct inode *inode)
 	    write_cache_block (disk_inode->i_block[12], direct_block);
 	  else
 	    {
-	      sema_up (&inode->sema);
+	      //	      sema_up (&inode->sema);
 	      return false;
 	    }
 
@@ -427,7 +428,7 @@ grow_one_block (struct inode *inode)
 	    write_cache_block (*(((block_sector_t *) direct_block) + sectors - 12), zeros);
 	  else
 	    {
-	      sema_up (&inode->sema);
+	      //	      sema_up (&inode->sema);
 	      return false;
 	    }
 
@@ -447,7 +448,7 @@ grow_one_block (struct inode *inode)
 	    write_cache_block (*(block_sector_t *) direct_block, zeros);
 	  else
 	    {
-	      sema_up (&inode->sema);
+	      //	      sema_up (&inode->sema);
 	      return false;
 	    }
 
@@ -455,7 +456,7 @@ grow_one_block (struct inode *inode)
 	    write_cache_block (*(block_sector_t *) indirect_block, direct_block);
 	  else
 	    {
-	      sema_up (&inode->sema);
+	      //	      sema_up (&inode->sema);
 	      return false;
 	    }
 
@@ -463,7 +464,7 @@ grow_one_block (struct inode *inode)
 	    write_cache_block (disk_inode->i_block[13], indirect_block);
 	  else
 	    {
-	      sema_up (&inode->sema);
+	      //	      sema_up (&inode->sema);
 	      return false;
 	    }
 	}
@@ -478,7 +479,7 @@ grow_one_block (struct inode *inode)
 		write_cache_block (*(block_sector_t *) direct_block, zeros);
 	      else
 		{
-		  sema_up (&inode->sema);
+		  //		  sema_up (&inode->sema);
 		  return false;
 		}
 
@@ -491,7 +492,7 @@ grow_one_block (struct inode *inode)
 		write_cache_block (*temp_idx, direct_block);
 	      else
 		{
-		  sema_up (&inode->sema);
+		  //		  sema_up (&inode->sema);
 		  return false;
 		}
 
@@ -513,7 +514,7 @@ grow_one_block (struct inode *inode)
 		write_cache_block (*temp_idx2, zeros);
 	      else
 		{
-		  sema_up (&inode->sema);
+		  //		  sema_up (&inode->sema);
 		  return false;
 		}
 
@@ -523,7 +524,7 @@ grow_one_block (struct inode *inode)
       free (direct_block);
       free (indirect_block);
     }
-  sema_up (&inode->sema);
+  //  sema_up (&inode->sema);
   return true;
 }
 
@@ -576,6 +577,7 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
 
       /* Sector to write, starting byte offset within sector. */
       block_sector_t sector_idx = byte_to_sector (inode, offset);
+      sema_down (&inode->sema);
       if (sector_idx == -1)
 	{
 	  if (!grow_one_block (inode))
@@ -613,7 +615,7 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
 	  //	  sema_down (&inode->sema);
 	  write_cache_block (sector_idx, bounce);
         }
-      //      sema_up (&inode->sema);
+      sema_up (&inode->sema);
 
       /* Advance. */
       size -= chunk_size;

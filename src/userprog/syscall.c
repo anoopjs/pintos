@@ -525,7 +525,9 @@ handle_sys_read (struct intr_frame *f)
 	put_user (f, (void *) buffer + i, input_getc ());
     }
   else
-    _size = file_read (file, buffer, size);
+    {
+      _size = file_read (file, buffer, size);
+    }
   
   /* for (i = 0; i < (int) size; i++) */
   /*   { */

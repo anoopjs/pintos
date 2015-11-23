@@ -39,7 +39,7 @@ read_cache_block (block_sector_t sector_idx, void *buffer)
   struct hash *hash;
   struct list_elem *e;
   struct cache_block *cb = NULL;
-
+  size_t size;
   list = &buffer_cache;
   hash = &buffer_cache_table;
   
@@ -48,28 +48,31 @@ read_cache_block (block_sector_t sector_idx, void *buffer)
     {
       if (buffer)
 	  memcpy (buffer, cb->data, BLOCK_SECTOR_SIZE);	
-      //      sema_down (&sema_cache);
+      sema_down (&sema_cache);
       list_remove (&cb->elem);
       list_push_front (list, &cb->elem);
-      //      sema_up (&sema_cache);
+      sema_up (&sema_cache);
       return cb;
     }
   else
     {
-      if (list_size (list) == 64)
+      sema_down (&sema_cache);
+      size = list_size (list);
+      sema_up (&sema_cache);
+      if (size == 64)
 	{
 	  struct cache_block *victim_block = list_entry (list_rbegin (list),
 							 struct cache_block,
 							 elem);
 	  block_write (fs_device, victim_block->inode_sector, victim_block->data);
 	  block_read (fs_device, sector_idx, victim_block->data);
-	  //	  sema_down (&sema_cache);
+	  sema_down (&sema_cache);
 	  list_remove (&victim_block->elem);
 	  hash_delete (hash, &victim_block->hash_elem);
 	  victim_block->inode_sector = sector_idx;
 	  list_push_front (list, &victim_block->elem);
 	  hash_insert (hash, &victim_block->hash_elem);
-	  //	  sema_up (&sema_cache);
+	  sema_up (&sema_cache);
 	  if (buffer)
 	    memcpy (buffer, victim_block->data, BLOCK_SECTOR_SIZE);
 	  return victim_block;
@@ -79,10 +82,10 @@ read_cache_block (block_sector_t sector_idx, void *buffer)
 	  struct cache_block *c = malloc (sizeof (struct cache_block));
 	  c->inode_sector = sector_idx;
 	  block_read (fs_device, sector_idx, c->data);
-	  //	  sema_down (&sema_cache);
+	  sema_down (&sema_cache);
 	  list_push_front (list, &c->elem);
 	  hash_insert (hash, &c->hash_elem);
-	  //	  sema_up (&sema_cache);
+	  sema_up (&sema_cache);
 	  if (buffer)
 	    memcpy (buffer, c->data, BLOCK_SECTOR_SIZE);
 	  return c;
@@ -99,7 +102,7 @@ write_cache_block (block_sector_t sector_idx, void *buffer)
   struct hash *hash;
   struct list_elem *e;
   struct cache_block *cb = NULL;
-
+  size_t size;
   list = &buffer_cache;
   hash = &buffer_cache_table;
 
@@ -107,28 +110,31 @@ write_cache_block (block_sector_t sector_idx, void *buffer)
   if (cb)
     {
       memcpy (cb->data, buffer, BLOCK_SECTOR_SIZE);
-      //      sema_down (&sema_cache);
+      sema_down (&sema_cache);
       list_remove (&cb->elem);
       list_push_front (list, &cb->elem);
-      //      sema_up (&sema_cache);
+      sema_up (&sema_cache);
       return cb;
     }
   else
     {
-      if (list_size (list) == 64)
+      sema_down (&sema_cache);
+      size = list_size (list);
+      sema_up (&sema_cache);
+      if (size == 64)
 	{
 	  struct cache_block *victim_block = list_entry (list_rbegin (list),
 							 struct cache_block,
 							 elem);
 	  block_write (fs_device, victim_block->inode_sector, victim_block->data);
 	  memcpy (victim_block->data, buffer, BLOCK_SECTOR_SIZE);
-	  //	  sema_down (&sema_cache);
+	  sema_down (&sema_cache);
 	  list_remove (&victim_block->elem);
 	  hash_delete (hash, &victim_block->hash_elem);
 	  victim_block->inode_sector = sector_idx;
 	  list_push_front (list, &victim_block->elem);
 	  hash_insert (hash, &victim_block->hash_elem);
-	  //	  sema_up (&sema_cache);
+	  sema_up (&sema_cache);
 	  return victim_block;
 	}
       else
@@ -136,10 +142,10 @@ write_cache_block (block_sector_t sector_idx, void *buffer)
 	  struct cache_block *c = malloc (sizeof (struct cache_block));
 	  c->inode_sector = sector_idx;
 	  memcpy (c->data, buffer, BLOCK_SECTOR_SIZE);
-	  //	  sema_down (&sema_cache);
+	  sema_down (&sema_cache);
 	  list_push_front (list, &c->elem);
 	  hash_insert (hash, &c->hash_elem);
-	  //	  sema_up (&sema_cache);
+	  sema_up (&sema_cache);
 	  return c;
 	}
     }

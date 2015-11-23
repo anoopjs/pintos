@@ -90,7 +90,8 @@ sema_down (struct semaphore *sema)
   old_level = intr_disable ();
   while (sema->value == 0) 
     {
-      waiter_push_priority (&sema->waiters, &thread_current ()->sema_elem);
+      //      waiter_push_priority (&sema->waiters, &thread_current ()->sema_elem);
+      list_push_back (&sema->waiters, &thread_current ()->sema_elem);
       thread_current ()->waiting_for_semaphore = sema;
       thread_block ();
     }
