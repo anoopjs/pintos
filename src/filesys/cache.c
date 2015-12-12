@@ -2,7 +2,29 @@
 #include "filesys/cache.h"
 #include "filesys/filesys.h"
 #include "threads/malloc.h"
+#include "devices/timer.h"
+#include "threads/thread.h"
 
+static void
+buffer_cache_flush ()
+{
+  while (true)
+    {
+      timer_msleep (60 * 1000);
+      write_back_cache_blocks ();
+    }
+}
+void
+cache_init ()
+{
+  tid_t tid;
+
+  list_init (&buffer_cache);
+  sema_init (&sema_cache, 1);
+  hash_init (&buffer_cache_table, cache_hash, cache_less, NULL);
+
+  tid = thread_create ("buffer_cache_flush", PRI_DEFAULT, buffer_cache_flush, NULL);
+}
 unsigned
 cache_hash (const struct hash_elem *p_, void *aux UNUSED)
 {

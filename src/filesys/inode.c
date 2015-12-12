@@ -23,7 +23,7 @@ struct inode_disk
     enum inode_type type;
     off_t length;                       /* File size in bytes. */
     unsigned magic;                     /* Magic number. */
-    block_sector_t i_block[14];               /* Pointers to blocks */
+    block_sector_t i_block[14];         /* Pointers to blocks */
     uint32_t unused[111];               /* Not used. */
   };
 
@@ -44,7 +44,8 @@ struct inode
     bool removed;                       /* True if deleted, false otherwise. */
     int deny_write_cnt;                 /* 0: writes ok, >0: deny writes. */
     struct inode_disk data;             /* Inode content. */
-    struct semaphore * sema;
+    struct semaphore sema;
+    struct semaphore dir_sema;
   };
 
 /* Returns the block device sector that contains byte offset POS
@@ -267,6 +268,7 @@ inode_open (block_sector_t sector)
   inode->deny_write_cnt = 0;
   inode->removed = false;
   sema_init (&inode->sema, 1);
+  sema_init (&inode->dir_sema, 1);
   read_cache_block (inode->sector, &inode->data);
   //  block_read (fs_device, inode->sector, &inode->data);
   return inode;
@@ -683,4 +685,10 @@ block_sector_t
 inode_sector (struct inode *inode)
 {
   return inode->sector;
+}
+
+struct semaphore *
+get_dir_sema (struct inode *inode)
+{
+  return &inode->dir_sema;
 }

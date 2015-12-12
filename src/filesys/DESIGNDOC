@@ -1,0 +1,275 @@
+       	       	     +-------------------------+
+		     |		CS 140	       |
+		     | PROJECT 4: FILE SYSTEMS |
+		     |	   DESIGN DOCUMENT     |
+		     +-------------------------+
+
+---- GROUP ----
+
+>> Fill in the names and email addresses of your group members.
+
+Anoop J S <anoop.js@csa.iisc.ernet.in>
+
+---- PRELIMINARIES ----
+
+>> If you have any preliminary comments on your submission, notes for the
+>> TAs, or extra credit, please give them here.
+
+>> Please cite any offline or online sources you consulted while
+>> preparing your submission, other than the Pintos documentation, course
+>> text, lecture notes, and course staff.
+
+		     INDEXED AND EXTENSIBLE FILES
+		     ============================
+
+---- DATA STRUCTURES ----
+
+>> A1: Copy here the declaration of each new or changed `struct' or
+>> `struct' member, global or static variable, `typedef', or
+>> enumeration.  Identify the purpose of each in 25 words or less.
+
+* struct inode_disk
+    enum inode_type type               // Whether inode points to file or directory
+    off_t length                       // Length of the inode
+    unsigned magic                     // Magic number
+    block_sector_t i_block[14]         // Sectors of direct, indirect, double indirect blocks
+    uint32_t unused[111]               // Not used
+
+* struct inode
+    struct list_elem elem              
+    block_sector_t sector              // Sector of this indoe
+    int open_cnt                       // Open count of this inode
+    bool removed                       // Whether this is a removed inode
+    int deny_write_cnt                 // Deny write count value
+    struct inode_disk *data            // struct inode_disk of this inode
+    struct semaphore sema              // semaphore for accessing this inode
+    struct semaphore dir_sema          // semaphore for modifying directory entry
+
+* struct semaphore sema                // Global semaphore for modifying open inodes list
+
+>> A2: What is the maximum size of a file supported by your inode
+>> structure?  Show your work.
+
+The modified inode_disk has 12 direct blocks, one indirect block and 
+one double indirect block. Therefore, the total filesize supported 
+will become (12 * 512) + (128 * 512) + (128 * 128 * 512) =
+6 kb + 64 kb + 8 MB. That is, file size of  little over 8 MB size is 
+supported. 8262 kilobytes to be precise.
+
+---- SYNCHRONIZATION ----
+
+>> A3: Explain how your code avoids a race if two processes attempt to
+>> extend a file at the same time.
+
+Each inode has a structure struct semaphore *sema associated with it. 
+While writing each block associated with this inode, this semaphore has 
+to be acquired before the write operation can take place.
+
+>> A4: Suppose processes A and B both have file F open, both
+>> positioned at end-of-file.  If A reads and B writes F at the same
+>> time, A may read all, part, or none of what B writes.  However, A
+>> may not read data other than what B writes, e.g. if B writes
+>> nonzero data, A is not allowed to see all zeros.  Explain how your
+>> code avoids this race.
+
+If a write operation requires file growth, the new length of the file 
+is changed only after new blocks are allocated and the required write 
+operation is over. That is, A will not read the data being written by 
+B until, B has finished writing the data and updated the new file length.
+
+>> A5: Explain how your synchronization design provides "fairness".
+>> File access is "fair" if readers cannot indefinitely block writers
+>> or vice versa.  That is, many processes reading from a file cannot
+>> prevent forever another process from writing the file, and many
+>> processes writing to a file cannot prevent another process forever
+>> from reading the file.
+
+When a thread waits for a file to be unlocked by another thread that is 
+doing the write/read operation, the semaphore maintains a waiting list 
+for those threads that are waiting for the read/write operation to finish.
+Therefore the fairness of the file access depends upon the fairness the 
+thread scheduler has. The thread scheduler makes sure that each thread 
+will obtain file access it deserves.
+
+---- RATIONALE ----
+
+>> A6: Is your inode structure a multilevel index?  If so, why did you
+>> choose this particular combination of direct, indirect, and doubly
+>> indirect blocks?  If not, why did you choose an alternative inode
+>> structure, and what advantages and disadvantages does your
+>> structure have, compared to a multilevel index?
+
+The inode structure I use have multi level index. It has 12 direct blocks,
+1 indirect block and 1 doubly indirect block. I chose this design because 
+I researched on the inode structure schemes used by Linux and saw that ext2 
+file system uses 12 direct blocks, 1 indirect block, 1 doubly indirect block 
+and 1 triple indirect blocks. Since I thought that supporting more than 
+8MB is not required for pintos, I decided to go without having a triply 
+indirect block. This scheme will make sure pintos can support large file 
+size that only issue is that whe file size becomes very large, it will 
+take 3 read opeartions to figure out the correct block sector.
+
+			    SUBDIRECTORIES
+			    ==============
+
+---- DATA STRUCTURES ----
+
+>> B1: Copy here the declaration of each new or changed `struct' or
+>> `struct' member, global or static variable, `typedef', or
+>> enumeration.  Identify the purpose of each in 25 words or less.
+
+* enum inode_type
+    FILE = 0
+    DIR = 1
+
+* struct dir_descriptor
+    int dd                  // directory descriptor value
+    struct dir *dir         // Pointer to struct dir
+    struct list_elem elem
+
+* struct thread
+    block_sector_t current_dir // current directory sector of this thread
+
+* struct inode
+    struct semaphore dir_sema // semaphore for modifying directory entry
+---- ALGORITHMS ----
+
+>> B2: Describe your code for traversing a user-specified path.  How
+>> do traversals of absolute and relative paths differ?
+
+I have modified the thread structure to store the block sector of the 
+current directory of the thread. When a thread has to processe a user-specified 
+path, it will check if the first character of the path is a '/'. If so, then the 
+traversal begins with the root directory. If not we will call inode_open 
+for the current directory sector stored within the thread structure. For 
+handing '.' and '..', whenever a new directory is being created, we will 
+add two directory entries with names '.' and '..' with sectors pointing to 
+same directory and it's parent directory respectively.
+
+---- SYNCHRONIZATION ----
+
+>> B4: How do you prevent races on directory entries?  For example,
+>> only one of two simultaneous attempts to remove a single file
+>> should succeed, as should only one of two simultaneous attempts to
+>> create a file with the same name, and so on.
+
+In the struct inode, I have added a struct semaphore dir_sema, which 
+has to be sema_down ed and sema_up'ped for each inode corresponding to 
+a particular directory, so that adding or removing a directory entry 
+is done atomically. This way simultaneous attempts to remove or add 
+multiple files will bring expected results.
+
+>> B5: Does your implementation allow a directory to be removed if it
+>> is open by a process or if it is in use as a process's current
+>> working directory?  If so, what happens to that process's future
+>> file system operations?  If not, how do you prevent it?
+
+In my implementation, I do allow a directory to be removed if it is open
+by a process, or it is a process's current working directory. For the 
+process's file system operations, the operation's will greacefully return 
+-1 to denote that operation have failed. It is the responsibility to 
+handle the file system's failed operations.
+
+---- RATIONALE ----
+
+>> B6: Explain why you chose to represent the current directory of a
+>> process the way you did.
+
+I decided to store the block sector number of the current working directory 
+instead of storing the directory pointer. this will improve the memory 
+efficiency as each thread will have its own open inode that will require around
+ 512 bytes. Also this will disallow any user process to accidently close the 
+open current directory and cause further issues.
+
+			     BUFFER CACHE
+			     ============
+
+---- DATA STRUCTURES ----
+
+>> C1: Copy here the declaration of each new or changed `struct' or
+>> `struct' member, global or static variable, `typedef', or
+>> enumeration.  Identify the purpose of each in 25 words or less.
+
+* struct cache_block
+    block_sector_t inode_sector        // the block sector of this cache block
+    uint8_t data[BLOCK_SECTOR_SIZE]    // *data*
+    struct list_elem elem              // list_elem for struct list buffer cache
+    struct hash_elem elem              // hash_elem for struct hash buffer_cache_table
+
+* struct list buffer_cache             // struct list for mainting buffer cache list
+* struct hash buffer_cache_table       // struct hash for searching buffer cache
+* struct semaphore sema_cache          // semaphore for modifying buffer cache map and hash table
+
+---- ALGORITHMS ----
+
+>> C2: Describe how your cache replacement algorithm chooses a cache
+>> block to evict.
+
+I have used a clock algorithm to choose a block to evict. When a situation arises
+that inorder to read/write a block, a victim has to be chosen, a block which was 
+least used will be chose. Then if that victim was modified, we will write back the
+data in that cache. Otherwise we can discard the data in that block as it wasn't.
+We will also give a second chance for cache blocks for each access on it since 
+there is a possibility that it will be required in the near future.
+
+>> C3: Describe your implementation of write-behind.
+
+>> C4: Describe your implementation of read-ahead.
+
+---- SYNCHRONIZATION ----
+
+>> C5: When one process is actively reading or writing data in a
+>> buffer cache block, how are other processes prevented from evicting
+>> that block?
+
+A buffer cache block is added the buffer cache list, only after the data is read 
+from the file system and read to the block. Also we have used a global 
+semaphore sema_cache for modifying the buffer cache list and table. 
+Both these scenarios are enough to make sure that another process cannot 
+evict a block to which reading/writing data is performed.
+
+>> C6: During the eviction of a block from the cache, how are other
+>> processes prevented from attempting to access the block?
+
+Searching a thread is done using the buffer cache hash table. Inorder to
+search the hash table we have to acquire the global semaphore sema_cache.
+But during eviction, this global semaphore will be held by the thread that
+is performing the eviction. This way, we will ensure that a process cannot
+access a block that is being evicted.
+
+---- RATIONALE ----
+
+>> C7: Describe a file workload likely to benefit from buffer caching,
+>> and workloads likely to benefit from read-ahead and write-behind.
+
+File workloads that benefit from buffer caching are those which read and 
+write to the same file blocks repeatedly. These operations will not have
+to read and write from the file system repeatedly, but can do those to the
+blocks in the cache. Workloads that will benefit from read-ahead are those
+which access file blocks in sequential order. Worklaods that benefit from
+write-behind are those that perform write-operations not so frequently but
+keeps those files open for long time / till the process exits.
+
+			   SURVEY QUESTIONS
+			   ================
+
+Answering these questions is optional, but it will help us improve the
+course in future quarters.  Feel free to tell us anything you
+want--these questions are just to spur your thoughts.  You may also
+choose to respond anonymously in the course evaluations at the end of
+the quarter.
+
+>> In your opinion, was this assignment, or any one of the three problems
+>> in it, too easy or too hard?  Did it take too long or too little time?
+
+>> Did you find that working on a particular part of the assignment gave
+>> you greater insight into some aspect of OS design?
+
+>> Is there some particular fact or hint we should give students in
+>> future quarters to help them solve the problems?  Conversely, did you
+>> find any of our guidance to be misleading?
+
+>> Do you have any suggestions for the TAs to more effectively assist
+>> students in future quarters?
+
+>> Any other comments?

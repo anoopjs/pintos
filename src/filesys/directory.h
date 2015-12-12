@@ -32,4 +32,5 @@ bool dir_rmdir (char *);
 char *get_filename (char *);
 struct dir *dir_get (char *);
 bool is_dir (char *);
+struct semaphore * get_dir_sema (struct inode *);
 #endif /* filesys/directory.h */

@@ -26,4 +26,5 @@ struct semaphore sema_cache;
 struct cache_block * read_cache_block (block_sector_t, void *);
 struct cache_block * write_cache_block (block_sector_t, void *);
 void write_back_cache_blocks (void);
+void cache_init (void);
 #endif 
