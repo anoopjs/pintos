@@ -56,6 +56,34 @@ will become (12 * 512) + (128 * 512) + (128 * 128 * 512) =
 6 kb + 64 kb + 8 MB. That is, file size of  little over 8 MB size is 
 supported. 8262 kilobytes to be precise.
 
++--------------------+
+| enum inode_type    |
+|____________________|
+| off_t length       |
+|____________________|                 +----------+
+| unsigned magic     |        /------->|  Direct  |
+|____________________|       /         |  block   |
+| i_block [0]        | _____/          +----------+
+|____________________|                                             +---------+
+| i_block [1]        |                                      /----->|  Direct |
+|____________________| Total 512 bytes                     /       |  block  |
+|   ...              |                                    /        +---------+
+|____________________|                  +-----------+    /  
+| i_block[11]        |         -------->|  Indirect |___/
+|____________________|        /         |  block    |
+| i_block[12]        | ______/          |-----------|                                +--------+
+|____________________|                  |-----------|                            /-->| Direct |
+| i_block[13]        | ------\          +-----------+            +----------+   /    | block  |
+|____________________|        \                            ----->| Indirect |--/     +--------+
+| unused [0]         |         \        +----------+      /      | block    |
+|____________________|          \------>| Double   |-----/       |----------|
+| unused [1]         |                  | Indirect |             +----------+
+|____________________|                  | block    |
+|   ...              |                  |----------|
+|____________________|                  +----------+
+| unused [111]       |
++--------------------+
+
 ---- SYNCHRONIZATION ----
 
 >> A3: Explain how your code avoids a race if two processes attempt to
@@ -63,7 +91,8 @@ supported. 8262 kilobytes to be precise.
 
 Each inode has a structure struct semaphore *sema associated with it. 
 While writing each block associated with this inode, this semaphore has 
-to be acquired before the write operation can take place.
+to be acquired before the write operation can take place. So only one
+processe will be able to extend a file a block at a time.
 
 >> A4: Suppose processes A and B both have file F open, both
 >> positioned at end-of-file.  If A reads and B writes F at the same
@@ -75,7 +104,7 @@ to be acquired before the write operation can take place.
 If a write operation requires file growth, the new length of the file 
 is changed only after new blocks are allocated and the required write 
 operation is over. That is, A will not read the data being written by 
-B until, B has finished writing the data and updated the new file length.
+B until B has finished writing the data and updated the new file length.
 
 >> A5: Explain how your synchronization design provides "fairness".
 >> File access is "fair" if readers cannot indefinitely block writers
@@ -132,6 +161,7 @@ take 3 read opeartions to figure out the correct block sector.
 
 * struct inode
     struct semaphore dir_sema // semaphore for modifying directory entry
+
 ---- ALGORITHMS ----
 
 >> B2: Describe your code for traversing a user-specified path.  How
@@ -142,9 +172,9 @@ current directory of the thread. When a thread has to processe a user-specified
 path, it will check if the first character of the path is a '/'. If so, then the 
 traversal begins with the root directory. If not we will call inode_open 
 for the current directory sector stored within the thread structure. For 
-handing '.' and '..', whenever a new directory is being created, we will 
+handling '.' and '..', whenever a new directory is being created, we will 
 add two directory entries with names '.' and '..' with sectors pointing to 
-same directory and it's parent directory respectively.
+same directory and its parent directory respectively.
 
 ---- SYNCHRONIZATION ----
 
@@ -166,9 +196,9 @@ multiple files will bring expected results.
 
 In my implementation, I do allow a directory to be removed if it is open
 by a process, or it is a process's current working directory. For the 
-process's file system operations, the operation's will greacefully return 
--1 to denote that operation have failed. It is the responsibility to 
-handle the file system's failed operations.
+process's file system operations, the operation's will gracefully return 
+-1 to denote that operation have failed. It is the responsibility of the
+user program to handle the file system's failed operations.
 
 ---- RATIONALE ----
 
@@ -214,7 +244,17 @@ there is a possibility that it will be required in the near future.
 
 >> C3: Describe your implementation of write-behind.
 
+We start a daemon process in cache_init when we initialize buffer cache, which 
+is activated every minute. All it does is flush the contents of buffer cache to 
+the file systen and go to sleep for another 60 seconds.
+
 >> C4: Describe your implementation of read-ahead.
+
+After each block read operation, a new thread is created which will read
+the block corresponding to the next sector index. Inorder to prevent infinite 
+recursive call, the thread is created only for even sector indexes, so the next
+block with odd sector index will be pre-fetched. Since we do not wait for the 
+created thread, the pre-fetching will be done asynchronously.
 
 ---- SYNCHRONIZATION ----
 
@@ -222,7 +262,7 @@ there is a possibility that it will be required in the near future.
 >> buffer cache block, how are other processes prevented from evicting
 >> that block?
 
-A buffer cache block is added the buffer cache list, only after the data is read 
+A buffer cache block is added to the buffer cache list, only after the data is read 
 from the file system and read to the block. Also we have used a global 
 semaphore sema_cache for modifying the buffer cache list and table. 
 Both these scenarios are enough to make sure that another process cannot 
@@ -246,7 +286,7 @@ File workloads that benefit from buffer caching are those which read and
 write to the same file blocks repeatedly. These operations will not have
 to read and write from the file system repeatedly, but can do those to the
 blocks in the cache. Workloads that will benefit from read-ahead are those
-which access file blocks in sequential order. Worklaods that benefit from
+which access file blocks in sequential order. Workloads that benefit from
 write-behind are those that perform write-operations not so frequently but
 keeps those files open for long time / till the process exits.
 

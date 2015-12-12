@@ -6,6 +6,12 @@
 #include "threads/thread.h"
 
 static void
+read_ahead (block_sector_t sector)
+{
+  read_cache_block (sector + 1, NULL);
+}
+
+static void
 buffer_cache_flush ()
 {
   while (true)
@@ -78,6 +84,7 @@ read_cache_block (block_sector_t sector_idx, void *buffer)
     }
   else
     {
+      tid_t tid;
       sema_down (&sema_cache);
       size = list_size (list);
       sema_up (&sema_cache);
@@ -97,6 +104,8 @@ read_cache_block (block_sector_t sector_idx, void *buffer)
 	  sema_up (&sema_cache);
 	  if (buffer)
 	    memcpy (buffer, victim_block->data, BLOCK_SECTOR_SIZE);
+	  if (sector_idx % 2 == 0)
+	    ;//	    tid = thread_create ("read_ahead", PRI_DEFAULT - 10, read_ahead, sector_idx);
 	  return victim_block;
 	}
       else
@@ -110,6 +119,8 @@ read_cache_block (block_sector_t sector_idx, void *buffer)
 	  sema_up (&sema_cache);
 	  if (buffer)
 	    memcpy (buffer, c->data, BLOCK_SECTOR_SIZE);
+	  if (sector_idx % 2 == 0)
+	    ;//	    tid = thread_create ("read_ahead", PRI_DEFAULT - 10, read_ahead, sector_idx);
 	  return c;
 	}
     }
